@@ -56,7 +56,13 @@ class PoseDetector:
             left_cx, left_cy = int(left_palm_x * w), int(left_palm_y * h)
             left_hand_pos = (left_cx, left_cy)
 
-            # 畫出左手手掌中心點 (黃色)
+            # 畫出左手觸擊範圍
+            # 1. 外圈半透明區域 (觸擊有效範圍)
+            overlay = image.copy()
+            cv2.circle(overlay, (left_cx, left_cy), 65, (0, 255, 255), -1)  # 黃色半透明外圈
+            cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
+
+            # 2. 中心點 (黃色實心)
             cv2.circle(image, (left_cx, left_cy), 15, (0, 255, 255), -1)
 
             # === 提取右手手掌中心座標 ===
@@ -71,7 +77,13 @@ class PoseDetector:
             right_cx, right_cy = int(right_palm_x * w), int(right_palm_y * h)
             right_hand_pos = (right_cx, right_cy)
 
-            # 畫出右手手掌中心點 (青色)
+            # 畫出右手觸擊範圍
+            # 1. 外圈半透明區域 (觸擊有效範圍)
+            overlay = image.copy()
+            cv2.circle(overlay, (right_cx, right_cy), 65, (255, 255, 0), -1)  # 青色半透明外圈
+            cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
+
+            # 2. 中心點 (青色實心)
             cv2.circle(image, (right_cx, right_cy), 15, (255, 255, 0), -1)
 
         return image, left_hand_pos, right_hand_pos #回傳圖片和雙手座標

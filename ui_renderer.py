@@ -42,6 +42,10 @@ class GameUI:
         if accuracy is not None:
             self._draw_accuracy(image, accuracy)
 
+        # 6. 如果是第二關，顯示物件說明
+        if level >= 2:
+            self._draw_legend(image)
+
     def _draw_arc(self, image, arc_info):
         """繪製半圓軌道"""
         center = arc_info['center']
@@ -184,3 +188,35 @@ class GameUI:
             self.TEXT_COLOR,
             thickness
         )
+
+    def _draw_legend(self, image):
+        """繪製物件說明（第二關）"""
+        height, width = image.shape[:2]
+
+        # 說明框的位置（左下角）
+        start_x = 20
+        start_y = height - 150
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 2
+        line_height = 35
+
+        # 繪製半透明背景（可選）
+        # overlay = image.copy()
+        # cv2.rectangle(overlay, (start_x - 10, start_y - 10), (start_x + 300, start_y + 120), (0, 0, 0), -1)
+        # cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)
+
+        # 紅色物件說明
+        cv2.circle(image, (start_x + 15, start_y + 10), 12, self.COLOR_NOTE_ACTIVE, -1)
+        cv2.putText(image, "Red: Hit (+1)", (start_x + 40, start_y + 18),
+                   font, font_scale, self.TEXT_COLOR, thickness)
+
+        # 藍色物件說明
+        cv2.circle(image, (start_x + 15, start_y + line_height + 10), 12, self.COLOR_NOTE_BOMB, -1)
+        cv2.putText(image, "Blue: Bomb (-2)", (start_x + 40, start_y + line_height + 18),
+                   font, font_scale, self.TEXT_COLOR, thickness)
+
+        # 金色物件說明
+        cv2.circle(image, (start_x + 15, start_y + line_height * 2 + 10), 12, self.COLOR_NOTE_BONUS, -1)
+        cv2.putText(image, "Gold: Bonus (+2)", (start_x + 40, start_y + line_height * 2 + 18),
+                   font, font_scale, self.TEXT_COLOR, thickness)

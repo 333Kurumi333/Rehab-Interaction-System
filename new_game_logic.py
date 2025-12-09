@@ -28,7 +28,7 @@ class GameEngine:
         self.ZONE_COUNT = zone_count          # 將半圓分成幾個區塊
         self.ZONE_ANGLE_WIDTH = 180 / zone_count # 每個區塊的角度寬度
         self.NOTE_SPEED = note_speed          # 物件移動速度 (像素/幀)
-        self.HIT_THRESHOLD = hit_threshold    # 判定手部與物件的距離寬容度 (像素)
+        self.HIT_THRESHOLD = 65               # 判定手部與物件的距離寬容度 (50 -> 65 像素，擴大觸擊範圍)
         self.LINE_HIT_TOLERANCE = 120         # 判定物件是否在半圓軌道上的寬容度 (80 -> 120，增加 50%)
         self.NOTE_RADIUS = 30                 # 物件的繪製半徑 (20 -> 30，增加 50%)
 
@@ -183,16 +183,20 @@ class GameEngine:
                 
             # 計算物件與中心點的距離 (判斷是否在軌道上)
             note_x, note_y = self.get_note_position(note)
-            
+
             # 判斷條件 A: 物件是否在目標軌道上 (時機點判定)
-            distance_to_center = math.hypot(note_x - self.ARC_CENTER[0], note_y - self.ARC_CENTER[1])
-            on_the_line = abs(distance_to_center - self.ARC_RADIUS) < self.LINE_HIT_TOLERANCE
-            
+            distance_note_to_center = math.hypot(note_x - self.ARC_CENTER[0], note_y - self.ARC_CENTER[1])
+            note_on_line = abs(distance_note_to_center - self.ARC_RADIUS) < self.LINE_HIT_TOLERANCE
+
             # 判斷條件 B: 手與物件的距離 (準確度判定)
             dist_hand_to_note = math.hypot(hand_pos[0] - note_x, hand_pos[1] - note_y)
 
-            # 綜合判定：必須在線上 AND 手要碰到物件
-            if on_the_line and dist_hand_to_note < (self.NOTE_RADIUS + self.HIT_THRESHOLD):
+            # 判斷條件 C: 手是否也在半圓軌道附近（必須在軌道線上，不能離軌道太遠）
+            distance_hand_to_center = math.hypot(hand_pos[0] - self.ARC_CENTER[0], hand_pos[1] - self.ARC_CENTER[1])
+            hand_on_line = abs(distance_hand_to_center - self.ARC_RADIUS) < (self.LINE_HIT_TOLERANCE + self.HIT_THRESHOLD)
+
+            # 綜合判定：物件在軌道上 AND 手碰到物件 AND 手也在軌道附近
+            if note_on_line and dist_hand_to_note < (self.NOTE_RADIUS + self.HIT_THRESHOLD) and hand_on_line:
 
                 # 確保同一個物件不會被連續觸碰兩次
                 if note['id'] != self.last_hit_note_id:
