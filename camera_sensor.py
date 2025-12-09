@@ -34,12 +34,12 @@ class PoseDetector:
         right_hand_pos = None # 右手手掌座標
 
         if results.pose_landmarks: # 如果畫面上有人
-            # 畫出骨架
-            self.mp_drawing.draw_landmarks(
-                image, #畫布=image
-                results.pose_landmarks, #畫關節點
-                self.mp_pose.POSE_CONNECTIONS #畫關節點間的連線
-            )
+            # 隱藏骨架線，不繪製
+            # self.mp_drawing.draw_landmarks(
+            #     image, #畫布=image
+            #     results.pose_landmarks, #畫關節點
+            #     self.mp_pose.POSE_CONNECTIONS #畫關節點間的連線
+            # )
 
             # 取得畫面尺寸
             h, w, c = image.shape # 取得畫面尺寸 Height Width Channel(通常是 3，代表 R、G、B)
