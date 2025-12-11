@@ -49,12 +49,32 @@ def main():
     # 1. 啟動各個模組
     sensor = PoseDetector()  # 視覺模組
 
+    # 設定視窗名稱 (要跟後面 imshow 的名稱一模一樣)
+    window_name = 'Rehab System - Rhythm Game'
+    
+    # 告訴 OpenCV：這個視窗是可以自由縮放的 (WINDOW_NORMAL)
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    
+    # 直接設定視窗一開始就全螢幕
+    #cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    
     # 開啟攝影機以取得解析度
     cap = cv2.VideoCapture(0)
 
     # 等待攝影機初始化並重試讀取
     import time
     time.sleep(1)  # 給攝影機一點時間初始化
+
+    # 技巧：設定一個超大的數字 (例如 10000)，攝影機會自動退回它支援的「最大解析度」
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 10000)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 10000)
+    
+    # 關鍵：設定完後，必須讀取「實際」抓到的解析度
+    # 因為我們不知道攝影機最後退回到了多少 (可能是 1920x1080 或 1280x720)
+    real_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    real_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    print(f"已啟用攝影機最高解析度: {real_width}x{real_height}")
 
     ret, frame = cap.read()
     retry_count = 0
@@ -79,7 +99,7 @@ def main():
     logic = GameEngine(
         width=width,
         height=height,
-        arc_radius=500,
+        arc_radius=int(width * 0.4),
         zone_count=8,
         note_speed=note_speed,
         level=level,
@@ -130,6 +150,12 @@ def main():
         cv2.imshow('Rehab System - Rhythm Game', processed_image)
 
         if cv2.waitKey(10) & 0xFF == ord('q'):
+            break
+
+        # 檢查視窗是否在剛才的 waitKey 過程中被 "X" 關閉了
+        # 這行必須放在 waitKey 之後
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            print("視窗已關閉")
             break
 
     cap.release()

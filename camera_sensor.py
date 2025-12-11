@@ -11,6 +11,19 @@ class PoseDetector:
             min_tracking_confidence=0.5 #AI追蹤人的靈敏度
         )
 
+        self.prev_left = None
+        self.prev_right = None
+        self.smooth_factor = 0.6  # 0.1(超平滑/延遲大) ~ 1.0(無平滑/反應快)
+        
+    def _smooth_coordinate(self, prev_pos, curr_pos):
+        """ 平滑化數學公式 """
+        if prev_pos is None:
+            return curr_pos
+        # 新位置 = 舊位置 * 40% + 新讀值 * 60%
+        new_x = int(prev_pos[0] * (1 - self.smooth_factor) + curr_pos[0] * self.smooth_factor)
+        new_y = int(prev_pos[1] * (1 - self.smooth_factor) + curr_pos[1] * self.smooth_factor)
+        return (new_x, new_y)
+
     def process_frame(self, frame):
         """
         輸入原始影像，回傳：
@@ -53,17 +66,20 @@ class PoseDetector:
             left_palm_x = (left_wrist.x + left_pinky.x + left_index.x) / 3
             left_palm_y = (left_wrist.y + left_pinky.y + left_index.y) / 3
 
-            left_cx, left_cy = int(left_palm_x * w), int(left_palm_y * h)
-            left_hand_pos = (left_cx, left_cy)
+            current_left = (int(left_palm_x * w), int(left_palm_y * h))
+
+            # 左手平滑處理
+            left_hand_pos = self._smooth_coordinate(self.prev_left, current_left)
+            self.prev_left = left_hand_pos # 更新記憶
 
             # 畫出左手觸擊範圍
             # 1. 外圈半透明區域 (觸擊有效範圍)
             overlay = image.copy()
-            cv2.circle(overlay, (left_cx, left_cy), 65, (0, 255, 255), -1)  # 黃色半透明外圈
+            cv2.circle(overlay, left_hand_pos, 65, (0, 255, 255), -1)  # 黃色半透明外圈
             cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
 
             # 2. 中心點 (黃色實心)
-            cv2.circle(image, (left_cx, left_cy), 15, (0, 255, 255), -1)
+            cv2.circle(image, left_hand_pos, 15, (0, 255, 255), -1)
 
             # === 提取右手手掌中心座標 ===
             right_wrist = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_WRIST]
@@ -74,16 +90,24 @@ class PoseDetector:
             right_palm_x = (right_wrist.x + right_pinky.x + right_index.x) / 3
             right_palm_y = (right_wrist.y + right_pinky.y + right_index.y) / 3
 
-            right_cx, right_cy = int(right_palm_x * w), int(right_palm_y * h)
-            right_hand_pos = (right_cx, right_cy)
+            current_right = (int(right_palm_x * w), int(right_palm_y * h))
+
+            # 右手平滑處理
+            right_hand_pos = self._smooth_coordinate(self.prev_right, current_right)
+            self.prev_right = right_hand_pos # 更新記憶
 
             # 畫出右手觸擊範圍
             # 1. 外圈半透明區域 (觸擊有效範圍)
             overlay = image.copy()
-            cv2.circle(overlay, (right_cx, right_cy), 65, (255, 255, 0), -1)  # 青色半透明外圈
+            cv2.circle(overlay, right_hand_pos, 65, (255, 255, 0), -1)  # 青色半透明外圈
             cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
 
             # 2. 中心點 (青色實心)
-            cv2.circle(image, (right_cx, right_cy), 15, (255, 255, 0), -1)
+            cv2.circle(image, right_hand_pos, 15, (255, 255, 0), -1)
+    
+        else:
+            # 重新下次人出現時，不會從舊位置飛過來，而是直接出現在新位置
+            self.prev_left = None
+            self.prev_right = None
 
         return image, left_hand_pos, right_hand_pos #回傳圖片和雙手座標
