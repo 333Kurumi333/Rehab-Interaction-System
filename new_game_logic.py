@@ -2,92 +2,71 @@ import math
 import random
 
 class GameEngine:
-    """
-    復健互動遊戲的邏輯引擎。
-    管理物件生成、移動、狀態更新以及碰撞判定。
-    """
-    
     def __init__(self, width, height, arc_radius=350, zone_count=4, note_speed=3, hit_threshold=50, level=1, notes_per_beat=1):
-        # --- 遊戲設定 ---
+        # ... (前面的設定保持不變) ...
         self.width = width
         self.height = height
         self.score = 0
-        self.notes = []             # 存放所有活動中的物件
-        self.spawn_timer = 0        # 控制物件生成頻率的計時器
-        self.level = level          # 目前關卡
-        self.notes_per_beat = notes_per_beat  # 每個節拍生成幾個物件
+        self.combo = 0              # <--- 新增：連擊數
+        self.max_combo = 0          # <--- 新增：最大連擊紀錄
+        self.notes = []             
+        self.spawn_timer = 0        
+        self.level = level          
+        self.notes_per_beat = notes_per_beat  
 
-        # --- 準確率統計 ---
-        self.total_notes = 0        # 總共出現的物件數
-        self.hit_notes = 0          # 成功擊中的物件數
-        self.miss_notes = 0         # 錯過的物件數
+        self.total_notes = 0        
+        self.hit_notes = 0          
+        self.miss_notes = 0         
 
-        # --- 介面/幾何參數 ---
-        self.ARC_CENTER = (width // 2, height) # 半圓圓心設定在畫面底部中央
-        self.ARC_RADIUS = arc_radius          # 復健區(半圓)的半徑
-        self.ZONE_COUNT = zone_count          # 將半圓分成幾個區塊
-        self.ZONE_ANGLE_WIDTH = 180 / zone_count # 每個區塊的角度寬度
-        self.NOTE_SPEED = note_speed          # 物件移動速度 (像素/幀)
-        self.HIT_THRESHOLD = 65               # 判定手部與物件的距離寬容度 (50 -> 65 像素，擴大觸擊範圍)
-        self.LINE_HIT_TOLERANCE = 120         # 判定物件是否在半圓軌道上的寬容度 (80 -> 120，增加 50%)
-        self.NOTE_RADIUS = 30                 # 物件的繪製半徑 (20 -> 30，增加 50%)
+        self.ARC_CENTER = (width // 2, height) 
+        self.ARC_RADIUS = arc_radius          
+        self.ZONE_COUNT = zone_count          
+        self.ZONE_ANGLE_WIDTH = 180 / zone_count 
+        self.NOTE_SPEED = note_speed          
+        self.HIT_THRESHOLD = 70               
+        self.LINE_HIT_TOLERANCE = 80          
+        self.NOTE_RADIUS = 30                 
 
-        # --- 狀態追蹤 ---
-        # 用於避免持續接觸時一直得分
         self.last_hit_note_id = -1
-        self.next_note_id = 0 # 用於給每個 note 獨一無二的 ID
-        self.last_spawn_zones = []  # 記錄最近生成的區域，避免重疊
+        self.next_note_id = 0 
+        self.last_spawn_zones = []  
 
     def _get_available_zones(self, count):
-        """取得可用的區域，避免與最近生成的物件重疊"""
+        # ... (這部分邏輯不變，省略以節省版面) ...
         all_zones = list(range(self.ZONE_COUNT))
-
-        # 過濾掉最近使用的區域和相鄰區域
         available_zones = []
         for zone in all_zones:
-            # 檢查這個區域和相鄰區域是否被占用
             is_available = True
             for used_zone in self.last_spawn_zones:
-                # 如果距離小於2個區域，視為太近
                 if abs(zone - used_zone) < 2:
                     is_available = False
                     break
             if is_available:
                 available_zones.append(zone)
-
-        # 如果沒有可用區域，清空記錄重新開始
         if len(available_zones) < count:
             self.last_spawn_zones = []
             available_zones = all_zones
-
-        # 隨機選擇 count 個不重複的區域
-        selected = random.sample(available_zones, min(count, len(available_zones)))
-        return selected
+        return random.sample(available_zones, min(count, len(available_zones)))
 
     def _spawn_note(self, zone=None):
-        """生成一個新的物件並加入到列表"""
         if zone is None:
             zone = random.randint(0, self.ZONE_COUNT - 1)
 
-        # 計算該區塊的角度範圍
         start_angle = 180 - (zone * self.ZONE_ANGLE_WIDTH)
         end_angle = 180 - ((zone + 1) * self.ZONE_ANGLE_WIDTH)
         angle = random.uniform(end_angle + 10, start_angle - 10)
 
-        # 初始位置半徑 (從外圍開始)
-        initial_radius = self.ARC_RADIUS + 300
+        initial_radius = 50 
 
-        # 決定物件類型（第二關才有特殊物件）
-        note_type = 'normal'  # 預設為普通物件
+        # === 修改重點：移除炸彈，只保留正常與加分 ===
+        note_type = 'normal'
         if self.level >= 2:
-            # 第二關：80% 正常（紅色），15% 炸彈（藍色），5% 加分（金色）
             rand = random.random()
-            if rand < 0.80:
-                note_type = 'normal'   # 紅色 - 正常擊中
-            elif rand < 0.95:
-                note_type = 'bomb'     # 藍色 - 不能碰
-            else:
-                note_type = 'bonus'    # 金色 - 雙倍分數
+            if rand < 0.90:       # 90% 機率一般物件
+                note_type = 'normal'
+            else:                 # 10% 機率加分物件 (原本是 5%加分 15%炸彈)
+                note_type = 'bonus'
+            # 炸彈 logic 已刪除
 
         self.notes.append({
             'id': self.next_note_id,
@@ -95,176 +74,133 @@ class GameEngine:
             'angle': angle,
             'current_radius': initial_radius,
             'active': True,
-            'status': 'active',  # 狀態：active, hit, miss
-            'type': note_type    # 物件類型：normal, bomb, bonus
+            'status': 'active',
+            'type': note_type
         })
         self.next_note_id += 1
-        self.total_notes += 1  # 增加總物件數
+        self.total_notes += 1
 
     def _update_notes(self):
-        """更新所有物件的位置和狀態"""
         notes_to_remove = []
         for note in self.notes:
             if not note['active']:
                 notes_to_remove.append(note)
                 continue
                 
-            # 移動：半徑縮小 (從外往內)
-            note['current_radius'] -= self.NOTE_SPEED
+            note['current_radius'] += self.NOTE_SPEED
             
-            # 判斷是否錯過 (Miss)
-            if note['current_radius'] < self.ARC_RADIUS - self.LINE_HIT_TOLERANCE:
+            # Miss 判定
+            if note['current_radius'] > self.ARC_RADIUS + self.LINE_HIT_TOLERANCE:
                 note['active'] = False
-                if note['status'] != 'hit':  # 只有沒被擊中的才算 miss
+                if note['status'] != 'hit':
                     note['status'] = 'miss'
                     self.miss_notes += 1
+                    self.combo = 0  # <--- 修改重點：漏接時 Combo 歸零
                 notes_to_remove.append(note)
 
-        # 移除已處理或錯過的物件
         for note in notes_to_remove:
             if note in self.notes:
                 self.notes.remove(note)
 
     def get_note_position(self, note):
-        """根據物件的極坐標計算其笛卡爾坐標 (用於繪圖或碰撞判定)"""
-        # 極坐標 (r, θ) 轉換為笛卡爾坐標 (x, y)
+        # ... (邏輯不變) ...
         rad_angle = math.radians(note['angle'])
         x = int(self.ARC_CENTER[0] + note['current_radius'] * math.cos(rad_angle))
-        y = int(self.ARC_CENTER[1] - note['current_radius'] * math.sin(rad_angle)) # Y 軸方向相反
+        y = int(self.ARC_CENTER[1] - note['current_radius'] * math.sin(rad_angle))
         return (x, y)
 
     def update_game_state(self, hand_pos, spawn_rate=60, music_controller=None):
-        """
-        更新遊戲狀態，包含物件生成、移動和碰撞判定。
-        這是主要的遊戲迴圈邏輯。
-
-        參數:
-        hand_pos (tuple | None): MediaPipe 偵測到的手部 (x, y) 坐標，若無則為 None。
-        spawn_rate (int): 每隔多少幀生成一個物件 (例如 60 幀約 2 秒)。
-        music_controller (MusicController | None): 音樂控制器，用於節奏同步。
-
-        回傳: 無 (但會更新 self.score 和 self.notes)
-        """
-
-        # 1. 物件生成
-        # 如果有音樂控制器，根據節奏生成；否則使用原本的計時器
+        # 1. 生成 (不變)
         if music_controller is not None:
             if music_controller.should_spawn_note():
-                # 取得不重疊的區域
                 zones = self._get_available_zones(self.notes_per_beat)
-                # 在每個區域生成物件
-                for zone in zones:
-                    self._spawn_note(zone)
-                # 記錄這次使用的區域
+                for zone in zones: self._spawn_note(zone)
                 self.last_spawn_zones = zones
         else:
             self.spawn_timer += 1
             if self.spawn_timer >= spawn_rate:
-                # 取得不重疊的區域
                 zones = self._get_available_zones(self.notes_per_beat)
-                # 在每個區域生成物件
-                for zone in zones:
-                    self._spawn_note(zone)
-                # 記錄這次使用的區域
+                for zone in zones: self._spawn_note(zone)
                 self.last_spawn_zones = zones
                 self.spawn_timer = 0
 
-        # 2. 物件移動
+        # 2. 移動 (不變)
         self._update_notes()
         
-        # 3. 碰撞判定與計分
+        # 3. 碰撞 (移除扣分邏輯，加入 Combo)
         if hand_pos is None:
-            self.last_hit_note_id = -1 # 確保手離開後可以重新計分
+            self.last_hit_note_id = -1
             return
             
         for note in self.notes:
             if not note['active'] or note['status'] == 'hit':
                 continue
                 
-            # 計算物件與中心點的距離 (判斷是否在軌道上)
             note_x, note_y = self.get_note_position(note)
+            
+            # 判定邏輯 (維持嚴格判定)
+            dist_note_center = math.hypot(note_x - self.ARC_CENTER[0], note_y - self.ARC_CENTER[1])
+            note_in_hit_zone = abs(dist_note_center - self.ARC_RADIUS) < self.LINE_HIT_TOLERANCE
 
-            # 判斷條件 A: 物件是否在目標軌道上 (時機點判定)
-            distance_note_to_center = math.hypot(note_x - self.ARC_CENTER[0], note_y - self.ARC_CENTER[1])
-            note_on_line = abs(distance_note_to_center - self.ARC_RADIUS) < self.LINE_HIT_TOLERANCE
+            dist_hand_note = math.hypot(hand_pos[0] - note_x, hand_pos[1] - note_y)
+            hand_touched_note = dist_hand_note < (self.NOTE_RADIUS + self.HIT_THRESHOLD)
 
-            # 判斷條件 B: 手與物件的距離 (準確度判定)
-            dist_hand_to_note = math.hypot(hand_pos[0] - note_x, hand_pos[1] - note_y)
+            dist_hand_center = math.hypot(hand_pos[0] - self.ARC_CENTER[0], hand_pos[1] - self.ARC_CENTER[1])
+            hand_on_line = abs(dist_hand_center - self.ARC_RADIUS) < self.LINE_HIT_TOLERANCE
 
-            # 判斷條件 C: 手是否也在半圓軌道附近（必須在軌道線上，不能離軌道太遠）
-            distance_hand_to_center = math.hypot(hand_pos[0] - self.ARC_CENTER[0], hand_pos[1] - self.ARC_CENTER[1])
-            hand_on_line = abs(distance_hand_to_center - self.ARC_RADIUS) < (self.LINE_HIT_TOLERANCE + self.HIT_THRESHOLD)
-
-            # 綜合判定：物件在軌道上 AND 手碰到物件 AND 手也在軌道附近
-            if note_on_line and dist_hand_to_note < (self.NOTE_RADIUS + self.HIT_THRESHOLD) and hand_on_line:
-
-                # 確保同一個物件不會被連續觸碰兩次
+            if note_in_hit_zone and hand_touched_note and hand_on_line:
                 if note['id'] != self.last_hit_note_id:
                     note_type = note.get('type', 'normal')
 
                     if note_type == 'normal':
-                        # 紅色物件：正常擊中 +1 分
                         self.score += 1
-                        note['status'] = 'hit'
-                        self.hit_notes += 1
                     elif note_type == 'bonus':
-                        # 金色物件：雙倍分數 +2 分
                         self.score += 2
-                        note['status'] = 'hit'
-                        self.hit_notes += 1
-                    elif note_type == 'bomb':
-                        # 藍色物件：不能碰，扣 2 分
-                        self.score = max(0, self.score - 2)  # 分數不會小於 0
-                        note['status'] = 'bomb_hit'  # 特殊狀態表示碰到炸彈
-
+                    
+                    # === 修改重點：命中後 Combo 增加 ===
+                    note['status'] = 'hit'
+                    self.hit_notes += 1
+                    self.combo += 1
+                    if self.combo > self.max_combo:
+                        self.max_combo = self.combo
+                    
                     self.last_hit_note_id = note['id']
-                    # 可以在這裡觸發視覺或音效回饋
                 
     def get_notes_for_drawing(self):
-        """回傳目前所有物件的繪圖資訊"""
+        # ... (稍微清理一下顏色邏輯，移除炸彈) ...
         drawing_data = []
         for note in self.notes:
             pos = self.get_note_position(note)
             note_type = note.get('type', 'normal')
-
-            # 根據物件類型設定顏色
-            if note['status'] == 'hit':
-                color = 'green'  # 擊中後顯示綠色
-            elif note['status'] == 'bomb_hit':
-                color = 'gray'   # 碰到炸彈顯示灰色
-            elif note_type == 'normal':
-                color = 'red'    # 紅色 - 正常物件
-            elif note_type == 'bomb':
-                color = 'blue'   # 藍色 - 炸彈（不能碰）
-            elif note_type == 'bonus':
-                color = 'gold'   # 金色 - 加分物件
-            else:
-                color = 'red'    # 預設紅色
+            
+            if note['status'] == 'hit': color = 'green'
+            elif note_type == 'normal': color = 'red'
+            elif note_type == 'bonus': color = 'gold'
+            else: color = 'red'
 
             drawing_data.append({
                 'pos': pos,
                 'radius': self.NOTE_RADIUS,
                 'status': note['status'],
                 'type': note_type,
-                'color': color # 輸出顏色資訊給繪圖程式
+                'color': color
             })
         return drawing_data
 
-    def get_score(self):
-        """回傳目前分數"""
-        return self.score
-
-    def get_accuracy(self):
-        """回傳準確率（百分比）"""
-        if self.total_notes == 0:
-            return 0.0
+    # ... (其他 getter) ...
+    def get_score(self): return self.score
+    def get_accuracy(self): 
+        if self.total_notes == 0: return 0.0
         return (self.hit_notes / self.total_notes) * 100
-
     def get_arc_info(self):
-        """回傳半圓的繪圖資訊，方便外部程式繪製 UI"""
         return {
             'center': self.ARC_CENTER,
             'radius': self.ARC_RADIUS,
             'zone_count': self.ZONE_COUNT,
-            'zone_angle_width': self.ZONE_ANGLE_WIDTH
+            'zone_angle_width': self.ZONE_ANGLE_WIDTH,
+            'hit_tolerance': self.LINE_HIT_TOLERANCE
         }
+    
+    # === 新增 Getter ===
+    def get_combo(self):
+        return self.combo

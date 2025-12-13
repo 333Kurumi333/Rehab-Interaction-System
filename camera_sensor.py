@@ -7,6 +7,7 @@ class PoseDetector:
         self.mp_drawing = mp.solutions.drawing_utils #畫圖工具
         self.mp_pose = mp.solutions.pose #人體模型藍圖
         self.pose = self.mp_pose.Pose(
+            model_complexity=0,
             min_detection_confidence=0.5, #AI辨識人的靈敏度
             min_tracking_confidence=0.5 #AI追蹤人的靈敏度
         )

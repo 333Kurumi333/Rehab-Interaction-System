@@ -1,5 +1,6 @@
 import cv2
 import random
+import time
 # 匯入另外四個檔案的 Class
 from camera_sensor import PoseDetector
 from new_game_logic import GameEngine
@@ -34,12 +35,12 @@ def main():
 
     # 根據關卡設定參數
     if level == 1:
-        bpm = 100  # 降低節奏 (120 -> 100)
+        bpm = 60  # 降低節奏 (120 -> 100)
         notes_per_beat = 1
         note_speed = 7  # 稍微降速 (8 -> 7)
     else:  # level == 2
-        bpm = 110  # 大幅降低節奏 (140 -> 110)
-        notes_per_beat = 2  # 固定每次 2 個物件
+        bpm = 80  # 大幅降低節奏 (140 -> 110)
+        notes_per_beat = 1  # 固定每次 1 個物件
         note_speed = 8  # 降低速度 (9 -> 8)
 
     print(f"\n開始第 {level} 關！")
@@ -59,23 +60,17 @@ def main():
     #cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     
     # 開啟攝影機以取得解析度
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
-    # 等待攝影機初始化並重試讀取
-    import time
-    time.sleep(1)  # 給攝影機一點時間初始化
 
-    # 技巧：設定一個超大的數字 (例如 10000)，攝影機會自動退回它支援的「最大解析度」
+    time.sleep(1) 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 10000)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 10000)
     
-    # 關鍵：設定完後，必須讀取「實際」抓到的解析度
-    # 因為我們不知道攝影機最後退回到了多少 (可能是 1920x1080 或 1280x720)
+    # 讀取實際設定結果
     real_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     real_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
-    print(f"已啟用攝影機最高解析度: {real_width}x{real_height}")
-
+    print(f"已設定攝影機解析度: {real_width}x{real_height} (低延遲模式)")
     ret, frame = cap.read()
     retry_count = 0
     while not ret and retry_count < 5:
@@ -135,6 +130,20 @@ def main():
         arc_info = logic.get_arc_info()
         score = logic.get_score()
         accuracy = logic.get_accuracy()
+
+        combo = logic.get_combo() 
+
+        # 繪製遊戲元素
+        ui.draw_game_elements(
+            processed_image,
+            arc_info,
+            notes_data,
+            score,
+            accuracy,
+            level,
+            combo=combo  # combo
+        )
+
 
         # 繪製遊戲元素
         ui.draw_game_elements(
