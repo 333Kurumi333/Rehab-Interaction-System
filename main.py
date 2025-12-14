@@ -1,175 +1,315 @@
 import cv2
 import random
 import time
-# 匯入另外四個檔案的 Class
+import os
+import threading
 from camera_sensor import PoseDetector
 from new_game_logic import GameEngine
 from ui_renderer import GameUI
 from music_controller import MusicController
 
+# === 1. Webcam 多執行緒 ===
+class WebcamStream:
+    def __init__(self, src=0, width=1920, height=1080):
+        self.stream = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+        self.stream.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.stream.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.stream.set(cv2.CAP_PROP_FPS, 30)
+        (self.grabbed, self.frame) = self.stream.read()
+        self.stopped = False
+
+    def start(self):
+        threading.Thread(target=self.update, args=(), daemon=True).start()
+        return self
+
+    def update(self):
+        while True:
+            if self.stopped: return
+            (self.grabbed, self.frame) = self.stream.read()
+
+    def read(self):
+        return self.grabbed, self.frame
+
+    def stop(self):
+        self.stopped = True
+        self.stream.release()
+
+# === 2. 背景影片多執行緒 ===
+class VideoPlayerThread:
+    def __init__(self, video_path):
+        self.cap = cv2.VideoCapture(video_path)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        if self.fps <= 0 or self.fps > 120: self.fps = 30
+        self.frame_duration = 1.0 / self.fps
+        
+        self.grabbed, self.frame = self.cap.read()
+        self.stopped = False
+        self.frame_available = True
+        if not self.grabbed:
+            print(f"無法讀取背景影片: {video_path}")
+            self.frame_available = False
+
+    def start(self):
+        if self.frame_available:
+            threading.Thread(target=self.update, args=(), daemon=True).start()
+        return self
+
+    def update(self):
+        while not self.stopped:
+            start_time = time.time()
+            grabbed, frame = self.cap.read()
+            if not grabbed:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
+            self.grabbed, self.frame = grabbed, frame
+            elapsed = time.time() - start_time
+            wait_time = self.frame_duration - elapsed
+            if wait_time > 0:
+                time.sleep(wait_time)
+
+    def read(self):
+        return self.frame
+
+    def stop(self):
+        self.stopped = True
+        self.cap.release()
+
+def is_hand_in_box(hand_pos, box_rect):
+    if hand_pos is None: return False
+    x, y = hand_pos
+    x1, y1, x2, y2 = box_rect
+    return x1 <= x <= x2 and y1 <= y <= y2
+
 def main():
-    # 選擇關卡
-    print("=" * 50)
-    print("歡迎來到復健互動遊戲！")
-    print("=" * 50)
-    print("請選擇關卡：")
-    print("1. 第一關 - 基礎模式")
-    print("   - BPM: 100 (慢)")
-    print("   - 每次 1 個物件")
-    print("   - 只有紅色物件")
-    print()
-    print("2. 第二關 - 進階模式")
-    print("   - BPM: 110 (稍快)")
-    print("   - 每次 2 個物件（不重疊）")
-    print("   - 紅色：正常擊中 (+1分) 80%")
-    print("   - 藍色：炸彈，不能碰 (-2分) 15%")
-    print("   - 金色：加分物件 (+2分) 5%")
-    print("=" * 50)
+    SONG_LIST = [
+        { "name": "Haruhikage", "filename": "Haruhikage_CRYCHIC.wav", "bpm": 97, "note_speed": 7, "folder": "music" },
+        { "name": "Zankoku na Tenshi no Te-ze", "filename": "Zankoku na Tenshi no Te-ze.wav", "bpm": 128, "note_speed": 7, "folder": "music" }
+    ]
 
-    while True:
-        level_input = input("請輸入關卡編號 (1 或 2): ").strip()
-        if level_input in ['1', '2']:
-            level = int(level_input)
-            break
-        print("請輸入 1 或 2")
-
-    # 根據關卡設定參數
-    if level == 1:
-        bpm = 60  # 降低節奏 (120 -> 100)
-        notes_per_beat = 1
-        note_speed = 7  # 稍微降速 (8 -> 7)
-    else:  # level == 2
-        bpm = 80  # 大幅降低節奏 (140 -> 110)
-        notes_per_beat = 1  # 固定每次 1 個物件
-        note_speed = 8  # 降低速度 (9 -> 8)
-
-    print(f"\n開始第 {level} 關！")
-    print("按 'q' 可以退出遊戲")
-    print()
-
-    # 1. 啟動各個模組
-    sensor = PoseDetector()  # 視覺模組
-
-    # 設定視窗名稱 (要跟後面 imshow 的名稱一模一樣)
-    window_name = 'Rehab System - Rhythm Game'
+    sensor = PoseDetector()
+    FULL_WIDTH, FULL_HEIGHT = 1920, 1080
+    ui = GameUI(width=FULL_WIDTH, height=FULL_HEIGHT)
     
-    # 告訴 OpenCV：這個視窗是可以自由縮放的 (WINDOW_NORMAL)
+    window_name = 'Rehab System - Rhythm Game'
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     
-    # 直接設定視窗一開始就全螢幕
-    #cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    cap = WebcamStream(src=0, width=FULL_WIDTH, height=FULL_HEIGHT).start()
+    time.sleep(1.0)
     
-    # 開啟攝影機以取得解析度
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-
-
-    time.sleep(1) 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 10000)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 10000)
+    is_running = True
+    bg_video_thread = None
     
-    # 讀取實際設定結果
-    real_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    real_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"已設定攝影機解析度: {real_width}x{real_height} (低延遲模式)")
-    ret, frame = cap.read()
-    retry_count = 0
-    while not ret and retry_count < 5:
-        print(f"嘗試讀取攝影機... ({retry_count + 1}/5)")
-        time.sleep(0.5)
-        ret, frame = cap.read()
-        retry_count += 1
+    # [新增] 初始化變數
+    fps = 0
+    prev_time = time.time()
 
-    if not ret:
-        print("無法開啟攝影機")
-        print("請檢查：")
-        print("1. 是否有其他程式正在使用攝影機")
-        print("2. 系統設定 > 隱私權與安全性 > 相機 中是否允許 Python/終端機存取")
-        cap.release()
-        return
+    while is_running:
+        # ==========================================
+        # Phase 1: Menu (選單)
+        # ==========================================
+        if bg_video_thread:
+            bg_video_thread.stop()
+            bg_video_thread = None
+            ui.background_video = None 
 
-    # 取得攝影機解析度
-    height, width = frame.shape[:2]
+        selected_song = None
+        hover_index = -1
+        hover_start_time = 0
+        SELECTION_TIME = 3.0
+        
+        menu_done = False
+        while not menu_done and is_running:
+            ret, frame = cap.read()
+            if not ret or frame is None: 
+                time.sleep(0.01)
+                continue
 
-    # 初始化遊戲邏輯（需要畫面尺寸）
-    logic = GameEngine(
-        width=width,
-        height=height,
-        arc_radius=int(width * 0.4),
-        zone_count=8,
-        note_speed=note_speed,
-        level=level,
-        notes_per_beat=notes_per_beat
-    )
-    ui = GameUI()  # 介面模組
+            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            
+            progress = 0.0
+            if hover_index != -1:
+                elapsed = time.time() - hover_start_time
+                progress = min(elapsed / SELECTION_TIME, 1.0)
+                if progress >= 1.0:
+                    selected_song = SONG_LIST[hover_index]
+                    menu_done = True 
+            
+            # [新增] 計算 FPS
+            curr_time = time.time()
+            if curr_time - prev_time > 0:
+                fps = 1 / (curr_time - prev_time)
+            else:
+                fps = 0
+            prev_time = curr_time
 
-    # 初始化音樂控制器
-    music = MusicController(
-        bpm=bpm,
-        music_file="sunds@1208.mp3"  # 背景音樂
-    )
-    music.start()
+            # [修改] 傳入 fps
+            box_regions = ui.draw_menu(processed_image, SONG_LIST, hover_index, progress, fps)
+            
+            current_hover = -1
+            for i, box in enumerate(box_regions):
+                if is_hand_in_box(left_hand_pos, box) or is_hand_in_box(right_hand_pos, box):
+                    current_hover = i
+                    break
+            if current_hover != -1:
+                if current_hover != hover_index:
+                    hover_index = current_hover
+                    hover_start_time = time.time()
+            else:
+                hover_index = -1
+                hover_start_time = 0
+            
+            cv2.imshow(window_name, processed_image)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+        
+        if not is_running: break
 
-    print(f"音樂節奏: {bpm} BPM | 每拍物件數: {notes_per_beat}")
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # A. 視覺處理：取得影像與雙手手掌座標
-        processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
-
-        # B. 邏輯處理：更新遊戲狀態（物件生成、移動、碰撞判定）
-        # 傳入雙手座標和音樂控制器，遊戲邏輯會檢查兩隻手並跟隨節奏
-        logic.update_game_state(left_hand_pos, music_controller=music)
-        logic.update_game_state(right_hand_pos, music_controller=music)
-
-        # C. 介面處理：把結果畫在畫面上
-        # 取得遊戲資料
-        notes_data = logic.get_notes_for_drawing()
-        arc_info = logic.get_arc_info()
-        score = logic.get_score()
-        accuracy = logic.get_accuracy()
-
-        combo = logic.get_combo() 
-
-        # 繪製遊戲元素
-        ui.draw_game_elements(
-            processed_image,
-            arc_info,
-            notes_data,
-            score,
-            accuracy,
-            level,
-            combo=combo  # combo
+        # ==========================================
+        # Phase 2: Game (遊戲)
+        # ==========================================
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        if selected_song['folder']:
+            music_path = os.path.join(current_dir, selected_song['folder'], selected_song['filename'])
+        else:
+            music_path = os.path.join(current_dir, selected_song['filename'])
+        
+        filename_no_ext = os.path.splitext(selected_song['filename'])[0]
+        video_filename = f"{filename_no_ext}.mp4"
+        video_path = os.path.join(current_dir, "video", video_filename)
+        
+        if os.path.exists(video_path):
+            print(f"啟動背景影片執行緒: {video_filename}")
+            bg_video_thread = VideoPlayerThread(video_path).start()
+        else:
+            bg_video_thread = None
+        
+        beatmap_name = filename_no_ext + ".txt"
+        bpm = selected_song['bpm']
+        note_speed = selected_song['note_speed'] 
+        
+        logic = GameEngine(
+            width=FULL_WIDTH,
+            height=FULL_HEIGHT,
+            arc_radius=int(FULL_WIDTH * 0.4),
+            zone_count=8,
+            note_speed=note_speed,
+            notes_per_beat=1,
+            beatmap_file=beatmap_name 
         )
+        music = MusicController(bpm=bpm, music_file=music_path)
+        music.start()
+        game_done = False
+        game_start_time = time.time()
+        prev_time = time.time()
+        
+        while not game_done and is_running:
+            ret, frame = cap.read()
+            if not ret or frame is None: 
+                time.sleep(0.001)
+                continue
+            
+            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            
+            if bg_video_thread:
+                bg_frame = bg_video_thread.read()
+                if bg_frame is not None:
+                    if bg_frame.shape[:2] != (FULL_HEIGHT, FULL_WIDTH):
+                        bg_frame = cv2.resize(bg_frame, (FULL_WIDTH, FULL_HEIGHT))
+                    
+                    fg = cv2.bitwise_and(processed_image, ui.mask)
+                    bg = cv2.bitwise_and(bg_frame, ui.mask_inv)
+                    processed_image = cv2.add(fg, bg)
 
+            logic.update_game_state(left_hand_pos, music_controller=music)
+            logic.update_game_state(right_hand_pos, music_controller=music)
+            
+            if (time.time() - game_start_time > 2.0) and (not music.is_music_playing()):
+                game_done = True
 
-        # 繪製遊戲元素
-        ui.draw_game_elements(
-            processed_image,
-            arc_info,
-            notes_data,
-            score,
-            accuracy,
-            level
-        )
+            notes_data = logic.get_notes_for_drawing()
+            arc_info = logic.get_arc_info()
+            score = logic.get_score()
+            accuracy = logic.get_accuracy()
+            combo = logic.get_combo() 
+            
+            # [新增] 計算 FPS
+            curr_time = time.time()
+            if curr_time - prev_time > 0:
+                fps = 1 / (curr_time - prev_time)
+            else:
+                fps = 0
+            prev_time = curr_time
+            
+            ui.draw_game_elements(
+                processed_image,
+                arc_info,
+                notes_data,
+                score,
+                accuracy,
+                combo=combo,
+                song_name=selected_song['name'], # 傳入歌名
+                fps=fps # 傳入 FPS
+            )
+            
+            cv2.imshow(window_name, processed_image)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+            
+        music.stop()
+        if bg_video_thread:
+            bg_video_thread.stop()
+            
+        if not is_running: break
 
-        # D. 顯示最終畫面
-        cv2.imshow('Rehab System - Rhythm Game', processed_image)
+        # ==========================================
+        # Phase 3: Result (結算)
+        # ==========================================
+        final_stats = { 'total': logic.total_notes, 'hit': logic.hit_notes, 'miss': logic.miss_notes, 'combo': logic.max_combo, 'score': logic.score }
+        result_done = False
+        hover_start_time = 0
+        is_hovering_btn = False
+        
+        while not result_done and is_running:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                time.sleep(0.01)
+                continue
+            
+            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            
+            progress = 0.0
+            if is_hovering_btn:
+                elapsed = time.time() - hover_start_time
+                progress = min(elapsed / SELECTION_TIME, 1.0)
+                if progress >= 1.0: result_done = True 
+            
+            # [新增] 計算 FPS
+            curr_time = time.time()
+            if curr_time - prev_time > 0:
+                fps = 1 / (curr_time - prev_time)
+            else:
+                fps = 0
+            prev_time = curr_time
 
-        if cv2.waitKey(10) & 0xFF == ord('q'):
-            break
-
-        # 檢查視窗是否在剛才的 waitKey 過程中被 "X" 關閉了
-        # 這行必須放在 waitKey 之後
-        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-            print("視窗已關閉")
-            break
-
-    cap.release()
+            # [修改] 傳入 fps
+            btn_rect = ui.draw_result_panel(processed_image, final_stats, progress, fps)
+            
+            if is_hand_in_box(left_hand_pos, btn_rect) or is_hand_in_box(right_hand_pos, btn_rect):
+                if not is_hovering_btn: is_hovering_btn = True; hover_start_time = time.time()
+            else:
+                is_hovering_btn = False; hover_start_time = 0
+            
+            cv2.imshow(window_name, processed_image)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+                
+    cap.stop()
+    if bg_video_thread: bg_video_thread.stop()
     cv2.destroyAllWindows()
-    music.stop()  # 停止音樂
 
 if __name__ == "__main__":
     main()

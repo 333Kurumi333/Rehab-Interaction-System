@@ -14,7 +14,7 @@ class PoseDetector:
 
         self.prev_left = None
         self.prev_right = None
-        self.smooth_factor = 0.6  # 0.1(超平滑/延遲大) ~ 1.0(無平滑/反應快)
+        self.smooth_factor = 0.7  # 0.1(超平滑/延遲大) ~ 1.0(無平滑/反應快)
         
     def _smooth_coordinate(self, prev_pos, curr_pos):
         """ 平滑化數學公式 """
@@ -58,14 +58,13 @@ class PoseDetector:
             # 取得畫面尺寸
             h, w, c = image.shape # 取得畫面尺寸 Height Width Channel(通常是 3，代表 R、G、B)
 
-            # === 提取左手手掌中心座標 ===
-            left_wrist = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_WRIST]
+            # === 提取左手座標 ===
             left_pinky = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_PINKY]
             left_index = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_INDEX]
 
-            # 計算左手手掌中心（手腕、小指、食指的三點平均）
-            left_palm_x = (left_wrist.x + left_pinky.x + left_index.x) / 3
-            left_palm_y = (left_wrist.y + left_pinky.y + left_index.y) / 3
+            # 計算左手中心
+            left_palm_x = (left_pinky.x + left_index.x) / 2
+            left_palm_y = (left_pinky.y + left_index.y) / 2
 
             current_left = (int(left_palm_x * w), int(left_palm_y * h))
 
@@ -82,14 +81,13 @@ class PoseDetector:
             # 2. 中心點 (黃色實心)
             cv2.circle(image, left_hand_pos, 15, (0, 255, 255), -1)
 
-            # === 提取右手手掌中心座標 ===
-            right_wrist = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_WRIST]
+            # === 提取右手座標 ===
             right_pinky = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_PINKY]
             right_index = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_INDEX]
 
-            # 計算右手手掌中心（手腕、小指、食指的三點平均）
-            right_palm_x = (right_wrist.x + right_pinky.x + right_index.x) / 3
-            right_palm_y = (right_wrist.y + right_pinky.y + right_index.y) / 3
+            # 計算右手中心
+            right_palm_x = (right_pinky.x + right_index.x) / 2
+            right_palm_y = (right_pinky.y + right_index.y) / 2
 
             current_right = (int(right_palm_x * w), int(right_palm_y * h))
 

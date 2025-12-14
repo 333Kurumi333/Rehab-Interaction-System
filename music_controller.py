@@ -2,30 +2,16 @@ import pygame
 import time
 
 class MusicController:
-    """
-    音樂控制器：處理背景音樂播放和節奏同步
-    """
-
     def __init__(self, bpm=120, music_file=None):
-        """
-        初始化音樂控制器
-
-        參數:
-        bpm: 每分鐘節拍數 (Beats Per Minute)，預設 120
-        music_file: 音樂檔案路徑 (mp3/wav)，可選
-        """
         pygame.mixer.init()
 
         self.bpm = bpm
-        self.beat_interval = 60.0 / bpm  # 每個節拍的時間間隔（秒）
+        self.beat_interval = 60.0 / bpm
         self.music_file = music_file
-
-        # 節奏追蹤
         self.start_time = None
         self.is_playing = False
         self.current_beat = 0
 
-        # 如果有音樂檔案，載入它
         if music_file:
             try:
                 pygame.mixer.music.load(music_file)
@@ -35,52 +21,48 @@ class MusicController:
                 self.music_file = None
 
     def start(self):
-        """開始播放音樂和節奏計時"""
+        """開始播放音樂"""
         self.start_time = time.time()
         self.is_playing = True
         self.current_beat = 0
 
-        # 如果有音樂檔案，播放它（循環播放）
         if self.music_file:
             try:
-                pygame.mixer.music.play(-1)  # -1 表示循環播放
+                # === 修改重點：改成只播放 1 次 (loop=0)，不是 -1 (無限循環) ===
+                pygame.mixer.music.play(0)
                 print("音樂開始播放")
             except Exception as e:
                 print(f"音樂播放失敗: {e}")
 
     def stop(self):
-        """停止音樂"""
         self.is_playing = False
         if self.music_file:
             pygame.mixer.music.stop()
 
     def should_spawn_note(self):
-        """
-        判斷現在是否應該生成物件（根據節拍）
-
-        回傳: True 如果現在是節拍點，False 否則
-        """
         if not self.is_playing or self.start_time is None:
             return False
-
-        # 計算經過的時間
         elapsed_time = time.time() - self.start_time
-
-        # 計算現在應該在第幾拍
         expected_beat = int(elapsed_time / self.beat_interval)
-
-        # 如果節拍數增加了，代表到了新的節拍點
         if expected_beat > self.current_beat:
             self.current_beat = expected_beat
             return True
-
         return False
 
-    def get_current_beat(self):
-        """取得目前的節拍數"""
-        return self.current_beat
+    def get_current_beat_float(self):
+        if not self.is_playing or self.start_time is None:
+            return 0.0
+        elapsed_time = time.time() - self.start_time
+        return elapsed_time / self.beat_interval
 
-    def set_bpm(self, bpm):
-        """設定新的 BPM"""
-        self.bpm = bpm
-        self.beat_interval = 60.0 / bpm
+    # === 新增功能：檢查音樂是否還在播放 ===
+    def is_music_playing(self):
+        """
+        回傳 True 代表音樂還在播
+        回傳 False 代表音樂播完了 (或根本沒播)
+        """
+        if not self.music_file: 
+            return False
+        
+        # get_busy() 回傳 True 代表正在混音(播放中)
+        return pygame.mixer.music.get_busy()
