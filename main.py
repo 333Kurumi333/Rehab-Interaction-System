@@ -7,7 +7,8 @@ from ui_renderer import GameUI
 from music_controller import MusicController
 from webcam_stream import WebcamStream
 from video_player import VideoPlayerThread
-from utils import FPSCounter, check_window_close, is_hand_in_box, StepProfiler
+from utils import FPSCounter, is_hand_in_box, StepProfiler
+from pygame_display import PygameDisplay
 
 
 def main():
@@ -20,8 +21,8 @@ def main():
     FULL_WIDTH, FULL_HEIGHT = 1920, 1080
     ui = GameUI(width=FULL_WIDTH, height=FULL_HEIGHT)
     
-    window_name = 'Rehab System - Rhythm Game'
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    # 使用 Pygame 顯示器（替代 OpenCV imshow）
+    display = PygameDisplay(FULL_WIDTH, FULL_HEIGHT, 'Rehab System - Rhythm Game')
     
     cap = WebcamStream(src=0, width=FULL_WIDTH, height=FULL_HEIGHT).start()
     time.sleep(1.0)
@@ -81,8 +82,8 @@ def main():
                 hover_index = -1
                 hover_start_time = 0
             
-            cv2.imshow(window_name, processed_image)
-            if check_window_close(window_name): is_running = False
+            display.show(processed_image)
+            if display.process_events(): is_running = False
         
         if not is_running: break
 
@@ -124,7 +125,20 @@ def main():
         game_start_time = time.time()
         profiler = StepProfiler(enabled=True, print_interval=60)  # 每 60 幀輸出一次
         
+        # 平行處理追蹤
+        last_pose_id = -1
+        pose_reuse_count = 0
+        total_frames = 0
+        
+        # 時間驅動：計算 delta_time
+        last_frame_time = time.time()
+        
         while not game_done and is_running:
+            # 計算這一幀經過的時間
+            current_time = time.time()
+            delta_time = current_time - last_frame_time
+            last_frame_time = current_time
+            
             profiler.start("攝影機讀取")
             ret, frame = cap.read()
             profiler.end()
@@ -135,8 +149,14 @@ def main():
             
             profiler.start("姿態偵測")
             sensor.submit_frame(frame)
-            processed_image, left_hand_pos, right_hand_pos = sensor.get_result()
+            processed_image, left_hand_pos, right_hand_pos, pose_id, pose_time = sensor.get_result_with_stats()
             profiler.end()
+            
+            # 追蹤重複使用
+            if pose_id == last_pose_id:
+                pose_reuse_count += 1
+            last_pose_id = pose_id
+            total_frames += 1
             
             if processed_image is None:
                 continue
@@ -154,8 +174,9 @@ def main():
             profiler.end()
 
             profiler.start("遊戲邏輯")
-            logic.update_game_state(left_hand_pos, music_controller=music)
-            logic.update_game_state(right_hand_pos, music_controller=music)
+            # 時間驅動：傳入 delta_time
+            logic.update_game_state(left_hand_pos, delta_time, music_controller=music)
+            logic.update_game_state(right_hand_pos, delta_time, music_controller=music)
             profiler.end()
             
             if (time.time() - game_start_time > 2.0) and (not music.is_music_playing()):
@@ -167,18 +188,45 @@ def main():
             accuracy = logic.get_accuracy()
             combo = logic.get_combo() 
             
+            # 計算時間進度（使用音樂播放位置）
+            time_progress = music.get_progress()
+            
             profiler.start("UI渲染")
             fps = fps_counter.update()
             ui.draw_game_elements(
                 processed_image, arc_info, notes_data, score, accuracy,
-                combo=combo, song_name=selected_song['name'], fps=fps
+                combo=combo, song_name=selected_song['name'], fps=fps, time_progress=time_progress
             )
             profiler.end()
             
             profiler.start("畫面顯示")
-            cv2.imshow(window_name, processed_image)
-            if check_window_close(window_name): is_running = False
+            display.show(processed_image)
+            if display.process_events(): is_running = False
             profiler.end()
+            
+            # 每 60 幀輸出平行處理統計
+            if profiler.frame_count == 0 and total_frames > 0:
+                print("\n" + "="*50)
+                print("🔄 平行處理統計")
+                print("="*50)
+                
+                # 攝影機統計
+                cam_stats = cap.get_stats()
+                print(f"攝影機執行緒: 讀取 {cam_stats['read_count']} 幀, 平均 {cam_stats['avg_time_ms']:.1f} ms/幀")
+                
+                # 姿態偵測統計
+                pose_stats = sensor.get_stats()
+                print(f"姿態偵測執行緒: 處理 {pose_stats['process_count']} 幀, 平均 {pose_stats['avg_time_ms']:.1f} ms/幀")
+                
+                # 影片統計
+                if bg_video_thread:
+                    vid_stats = bg_video_thread.get_stats()
+                    print(f"影片播放執行緒: 讀取 {vid_stats['read_count']} 幀, 平均 {vid_stats['avg_time_ms']:.1f} ms/幀")
+                
+                # 重複使用統計
+                reuse_rate = (pose_reuse_count / total_frames * 100) if total_frames > 0 else 0
+                print(f"\n姿態結果重複使用: {pose_reuse_count}/{total_frames} 次 ({reuse_rate:.1f}%)")
+                print("="*50)
             
             profiler.frame_done()
             
@@ -222,13 +270,13 @@ def main():
             else:
                 is_hovering_btn = False; hover_start_time = 0
             
-            cv2.imshow(window_name, processed_image)
-            if check_window_close(window_name): is_running = False
+            display.show(processed_image)
+            if display.process_events(): is_running = False
                 
     sensor.stop()
     cap.stop()
     if bg_video_thread: bg_video_thread.stop()
-    cv2.destroyAllWindows()
+    display.close()
 
 if __name__ == "__main__":
     main()

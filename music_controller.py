@@ -11,11 +11,16 @@ class MusicController:
         self.start_time = None
         self.is_playing = False
         self.current_beat = 0
+        self.song_duration = 0  # 歌曲長度（秒）
 
         if music_file:
             try:
                 pygame.mixer.music.load(music_file)
-                print(f"音樂載入成功: {music_file}")
+                # 取得歌曲長度
+                sound = pygame.mixer.Sound(music_file)
+                self.song_duration = sound.get_length()
+                del sound  # 釋放記憶體
+                print(f"音樂載入成功: {music_file} (長度: {self.song_duration:.1f}秒)")
             except Exception as e:
                 print(f"音樂載入失敗: {e}")
                 self.music_file = None
@@ -54,6 +59,17 @@ class MusicController:
             return 0.0
         elapsed_time = time.time() - self.start_time
         return elapsed_time / self.beat_interval
+
+    def get_progress(self):
+        """回傳歌曲播放進度 (0.0 ~ 1.0)"""
+        if not self.is_playing or self.start_time is None:
+            return 0.0
+        
+        if self.song_duration <= 0:
+            return 0.0
+        
+        elapsed = time.time() - self.start_time
+        return min(elapsed / self.song_duration, 1.0)
 
     # === 新增功能：檢查音樂是否還在播放 ===
     def is_music_playing(self):

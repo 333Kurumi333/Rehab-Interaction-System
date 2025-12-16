@@ -92,6 +92,7 @@ class PoseDetectorThread:
     
     def __init__(self):
         import threading
+        import time
         self.detector = PoseDetector()
         self.frame = None
         self.processed_image = None
@@ -100,6 +101,12 @@ class PoseDetectorThread:
         self.stopped = False
         self.lock = threading.Lock()
         self.new_frame_event = threading.Event()
+        
+        # 計時與追蹤
+        self.result_id = 0           # 結果 ID（每次處理完 +1）
+        self.last_process_time = 0   # 上次處理耗時 (ms)
+        self.process_count = 0       # 已處理幀數
+        self.total_process_time = 0  # 總處理時間
     
     def start(self):
         import threading
@@ -108,8 +115,8 @@ class PoseDetectorThread:
     
     def _update(self):
         """背景執行緒：持續處理最新的畫面"""
+        import time
         while not self.stopped:
-            # 等待新畫面
             self.new_frame_event.wait(timeout=0.1)
             self.new_frame_event.clear()
             
@@ -117,13 +124,23 @@ class PoseDetectorThread:
                 frame = self.frame
             
             if frame is not None:
+                # 計時開始
+                start_time = time.time()
+                
                 # 執行姿態偵測 (耗時操作)
                 processed, left, right = self.detector.process_frame(frame)
+                
+                # 計時結束
+                elapsed = (time.time() - start_time) * 1000
                 
                 with self.lock:
                     self.processed_image = processed
                     self.left_hand_pos = left
                     self.right_hand_pos = right
+                    self.result_id += 1
+                    self.last_process_time = elapsed
+                    self.process_count += 1
+                    self.total_process_time += elapsed
     
     def submit_frame(self, frame):
         """主執行緒：提交新畫面給背景處理"""
@@ -135,6 +152,27 @@ class PoseDetectorThread:
         """主執行緒：取得最新處理結果 (不阻塞)"""
         with self.lock:
             return self.processed_image, self.left_hand_pos, self.right_hand_pos
+    
+    def get_result_with_stats(self):
+        """主執行緒：取得結果及統計資訊"""
+        with self.lock:
+            return (
+                self.processed_image, 
+                self.left_hand_pos, 
+                self.right_hand_pos,
+                self.result_id,
+                self.last_process_time
+            )
+    
+    def get_stats(self):
+        """取得處理統計"""
+        with self.lock:
+            avg = self.total_process_time / self.process_count if self.process_count > 0 else 0
+            return {
+                'process_count': self.process_count,
+                'avg_time_ms': avg,
+                'last_time_ms': self.last_process_time
+            }
     
     def stop(self):
         self.stopped = True

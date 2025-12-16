@@ -114,15 +114,15 @@ class GameUI:
         self._draw_shadow_text(image, text, (tx, cy), scale, color, thickness=3)
 
     # === [修改] 接收 song_name 和 fps ===
-    def draw_game_elements(self, image, arc_info, notes_data, score, accuracy=None, combo=0, song_name="", fps=0):
+    def draw_game_elements(self, image, arc_info, notes_data, score, accuracy=None, combo=0, song_name="", fps=0, time_progress=0):
         elapsed = time.time() - self.start_time
         pulse = (math.sin(elapsed * 3) + 1) / 2 
         self._draw_judge_zone(image, arc_info, pulse)
         self._draw_track_lines(image, arc_info)
         self._draw_notes(image, notes_data, pulse)
         
-        # 傳遞 song_name 給 dashboard
-        self._draw_dashboard(image, score, accuracy, song_name)
+        # 傳遞 time_progress 給 dashboard
+        self._draw_dashboard(image, score, accuracy, song_name, time_progress)
         
         if combo > 1:
             self._draw_combo(image, combo, pulse)
@@ -180,28 +180,28 @@ class GameUI:
                 text = "+2" if note_type == 'bonus' else "Good!"
                 self._draw_shadow_text(image, text, (pos[0]-60, pos[1]-60), 1.0, (255, 255, 255), thickness=2)
 
-    def _draw_dashboard(self, image, score, accuracy, song_name=""):
+    def _draw_dashboard(self, image, score, accuracy, song_name="", time_progress=0):
         h, w = image.shape[:2]
         panel_height = 100
         cv2.rectangle(image, (0, 0), (w, panel_height), self.COLOR_BG_PANEL, -1)
-        if accuracy is not None:
-            bar_width = int((w - 40) * (accuracy / 100.0))
-            bar_color = (0, 255, 0) if accuracy > 80 else (0, 165, 255)
-            if accuracy < 50: bar_color = (0, 0, 255)
-            cv2.rectangle(image, (20, panel_height - 10), (w-20, panel_height), (30, 30, 30), -1)
-            cv2.rectangle(image, (20, panel_height - 10), (20 + bar_width, panel_height), bar_color, -1)
         
-        # === [嚴格保留] 你的程式碼：Score 在左側 ===
+        # 時間進度條（取代命中率進度條）
+        bar_width = int((w - 40) * min(time_progress, 1.0))
+        bar_color = (0, 200, 255)  # 橙黃色
+        cv2.rectangle(image, (20, panel_height - 10), (w-20, panel_height), (30, 30, 30), -1)
+        cv2.rectangle(image, (20, panel_height - 10), (20 + bar_width, panel_height), bar_color, -1)
+        
+        # === Score 在左側 ===
         score_text = f"SCORE: {score}"
         self._draw_shadow_text(image, score_text, (20, 60), 1.5, (255, 255, 255), thickness=3)
         
-        # === [新增] 歌名在中間 ===
+        # === 歌名在中間 ===
         if song_name:
             text_size = cv2.getTextSize(song_name, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
             center_x = (w - text_size[0]) // 2
-            # 位置與 Score (y=60) 平行
             self._draw_shadow_text(image, song_name, (center_x, 60), 1.2, (255, 255, 255), thickness=3)
 
+        # === 命中率在右側 ===
         if accuracy is not None:
             acc_text = f"{accuracy:.1f}%"
             acc_color = (0, 255, 0) if accuracy > 80 else (0, 0, 255)

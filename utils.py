@@ -1,4 +1,3 @@
-import cv2
 import time
 
 
@@ -14,15 +13,6 @@ class FPSCounter:
         self.fps = 1 / (curr - self.prev_time) if curr > self.prev_time else 0
         self.prev_time = curr
         return self.fps
-
-
-def check_window_close(window_name):
-    """檢查視窗是否應關閉"""
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        return True
-    if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-        return True
-    return False
 
 
 def is_hand_in_box(hand_pos, box_rect):

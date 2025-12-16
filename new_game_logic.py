@@ -47,8 +47,9 @@ class GameEngine:
         self.ZONE_COUNT = zone_count          
         self.ZONE_ANGLE_WIDTH = 180 / zone_count 
         
-        # 還原：使用外部傳入的速度 (例如 7 或 8)
-        self.NOTE_SPEED = note_speed          
+        # 時間驅動：速度改成「像素/秒」
+        # note_speed 參數原本是每幀移動的像素，乘以 30 轉換成每秒
+        self.NOTE_SPEED_PER_SEC = note_speed * 30          
         
         # 還原：原本較寬鬆的判定值
         self.HIT_THRESHOLD = 70               
@@ -106,13 +107,15 @@ class GameEngine:
         self.next_note_id += 1
         self.total_notes += 1
 
-    def _update_notes(self):
+    def _update_notes(self, delta_time):
+        """delta_time: 這一幀經過的時間（秒）"""
         notes_to_remove = []
         for note in self.notes:
             if not note['active']:
                 notes_to_remove.append(note)
                 continue
-            note['current_radius'] += self.NOTE_SPEED
+            # 時間驅動：移動距離 = 速度 × 時間
+            note['current_radius'] += self.NOTE_SPEED_PER_SEC * delta_time
             if note['current_radius'] > self.ARC_RADIUS + self.LINE_HIT_TOLERANCE:
                 note['active'] = False
                 if note['status'] != 'hit':
@@ -130,14 +133,16 @@ class GameEngine:
         y = int(self.ARC_CENTER[1] - note['current_radius'] * math.sin(rad_angle))
         return (x, y)
 
-    def update_game_state(self, hand_pos, spawn_rate=60, music_controller=None):
+    def update_game_state(self, hand_pos, delta_time, music_controller=None):
+        """
+        delta_time: 這一幀經過的時間（秒）
+        """
         if music_controller is not None:
             current_beat = music_controller.get_current_beat_float()
             dist = self.ARC_RADIUS - 50
-            frames = dist / self.NOTE_SPEED
             
-            # 【重要】如果您覺得 1080p 球還是稍微有點對不上，可以微調這個 30.0
-            sec_to_hit = frames / 30.0 
+            # 時間驅動：用實際速度計算到達時間，不再依賴 FPS
+            sec_to_hit = dist / self.NOTE_SPEED_PER_SEC
             
             if music_controller.bpm > 0:
                 sec_per_beat = 60.0 / music_controller.bpm
@@ -154,14 +159,15 @@ class GameEngine:
                     self.last_spawn_zones = zones
                 self.last_spawned_beat = target_beat
         else:
-            self.spawn_timer += 1
-            if self.spawn_timer >= spawn_rate * 2:
+            # 沒有音樂時，用時間計時器
+            self.spawn_timer += delta_time
+            if self.spawn_timer >= 2.0:  # 每 2 秒出一次
                 zones = self._get_available_zones(self.notes_per_beat)
                 for zone in zones: self._spawn_note(zone)
                 self.last_spawn_zones = zones
                 self.spawn_timer = 0
 
-        self._update_notes()
+        self._update_notes(delta_time)
         
         if hand_pos is None:
             self.last_hit_note_id = -1
