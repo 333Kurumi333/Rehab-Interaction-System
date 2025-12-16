@@ -9,6 +9,7 @@ from webcam_stream import WebcamStream
 from video_player import VideoPlayerThread
 from utils import FPSCounter, is_hand_in_box, StepProfiler
 from pygame_display import PygameDisplay
+from pygame_ui import PygameUI
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
     sensor = PoseDetectorThread().start()
     FULL_WIDTH, FULL_HEIGHT = 1920, 1080
     ui = GameUI(width=FULL_WIDTH, height=FULL_HEIGHT)
+    pygame_ui = PygameUI(width=FULL_WIDTH, height=FULL_HEIGHT)  # 新增 Pygame UI
     
     # 使用 Pygame 顯示器（替代 OpenCV imshow）
     display = PygameDisplay(FULL_WIDTH, FULL_HEIGHT, 'Rehab System - Rhythm Game')
@@ -193,14 +195,16 @@ def main():
             
             profiler.start("UI渲染")
             fps = fps_counter.update()
-            ui.draw_game_elements(
-                processed_image, arc_info, notes_data, score, accuracy,
-                combo=combo, song_name=selected_song['name'], fps=fps, time_progress=time_progress
-            )
             profiler.end()
             
             profiler.start("畫面顯示")
-            display.show(processed_image)
+            # 新流程：先 blit 基底畫面，再用 Pygame 繪製 UI
+            display.blit_frame(processed_image)
+            pygame_ui.draw_game_ui(
+                display.get_screen(), arc_info, notes_data, score, accuracy,
+                combo, selected_song['name'], fps, time_progress
+            )
+            display.flip()
             if display.process_events(): is_running = False
             profiler.end()
             

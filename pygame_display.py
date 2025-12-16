@@ -46,6 +46,24 @@ class PygameDisplay:
         self.screen.blit(surface, (0, 0))
         pygame.display.flip()
     
+    def blit_frame(self, frame):
+        """只把 OpenCV 畫面放到 screen 上，不做 flip（用於需要額外繪製的情況）"""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        surface = pygame.image.frombuffer(
+            rgb_frame.tobytes(), 
+            (rgb_frame.shape[1], rgb_frame.shape[0]),
+            'RGB'
+        )
+        self.screen.blit(surface, (0, 0))
+    
+    def flip(self):
+        """更新顯示（用於 blit_frame 之後）"""
+        pygame.display.flip()
+    
+    def get_screen(self):
+        """取得 screen 供外部繪製"""
+        return self.screen
+    
     def process_events(self):
         """處理 Pygame 事件，回傳是否應該關閉"""
         for event in pygame.event.get():
@@ -59,4 +77,3 @@ class PygameDisplay:
     def close(self):
         """關閉顯示器"""
         pygame.quit()
-
