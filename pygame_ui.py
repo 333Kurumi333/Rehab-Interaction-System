@@ -1,5 +1,5 @@
 """
-Pygame UI 渲染器 - 測試用 Pygame 繪製 UI 是否比 OpenCV 更快
+Pygame UI 渲染器 - 使用 Pygame 繪製遊戲 UI
 """
 
 import pygame
@@ -9,7 +9,7 @@ import math
 class PygameUI:
     """使用 Pygame 繪製 UI 元素"""
     
-    def __init__(self, width=1920, height=1080):
+    def __init__(self, width=1920, height=1080, zone_count=8):
         self.width = width
         self.height = height
         
@@ -27,6 +27,10 @@ class PygameUI:
         self.COLOR_YELLOW = (255, 255, 0)
         self.COLOR_CYAN = (0, 255, 255)
         self.COLOR_ORANGE = (255, 200, 0)
+        self.COLOR_ARC = (0, 200, 255)
+        
+        # 預計算弧線幾何（只計算一次）
+        self._init_arc_geometry(width, height, zone_count)
     
     def draw_game_ui(self, screen, arc_info, notes_data, score, accuracy, combo, song_name, fps, time_progress):
         """在 Pygame screen 上繪製遊戲 UI"""
@@ -88,34 +92,44 @@ class PygameUI:
             self._draw_text_with_outline(screen, self.font_medium, f"{accuracy:.1f}%", 
                                          (w - acc_text.get_width() - 30, 25), acc_color)
     
-    def _draw_arc(self, screen, arc_info):
-        """繪製判定區弧線（簡潔版）"""
-        center = arc_info['center']
-        radius = arc_info['radius']
-        zone_count = arc_info['zone_count']
-        zone_angle_width = arc_info['zone_angle_width']
-        
+    def _init_arc_geometry(self, width, height, zone_count):
+        """預計算弧線幾何參數（只在初始化時執行一次）"""
+        center = (width // 2, height)
+        radius = int(width * 0.4)
         hit_tolerance = 80
         outer_radius = radius + hit_tolerance
         inner_radius = radius - hit_tolerance
+        zone_angle_width = 180 / zone_count
         
-        # 邊框線
-        outer_rect = pygame.Rect(center[0] - outer_radius, center[1] - outer_radius, 
-                                 outer_radius * 2, outer_radius * 2)
-        inner_rect = pygame.Rect(center[0] - inner_radius, center[1] - inner_radius, 
-                                 inner_radius * 2, inner_radius * 2)
+        # 預計算弧線矩形
+        self.arc_outer_rect = pygame.Rect(
+            center[0] - outer_radius, center[1] - outer_radius,
+            outer_radius * 2, outer_radius * 2
+        )
+        self.arc_inner_rect = pygame.Rect(
+            center[0] - inner_radius, center[1] - inner_radius,
+            inner_radius * 2, inner_radius * 2
+        )
         
-        pygame.draw.arc(screen, (0, 200, 255), outer_rect, 0, math.pi, 2)
-        pygame.draw.arc(screen, (0, 200, 255), inner_rect, 0, math.pi, 2)
-        
-        # 繪製區域分隔線
+        # 預計算分隔線端點
+        self.zone_lines = []
         for i in range(1, zone_count):
             angle = math.radians(180 - (i * zone_angle_width))
             start = (int(center[0] + inner_radius * math.cos(angle)), 
                      int(center[1] - inner_radius * math.sin(angle)))
             end = (int(center[0] + outer_radius * math.cos(angle)), 
                    int(center[1] - outer_radius * math.sin(angle)))
-            pygame.draw.line(screen, (0, 200, 255), start, end, 2)
+            self.zone_lines.append((start, end))
+    
+    def _draw_arc(self, screen, arc_info=None):
+        """繪製判定區弧線（使用預計算的幾何參數）"""
+        # 直接使用預計算的值，不需要每幀重新計算
+        pygame.draw.arc(screen, self.COLOR_ARC, self.arc_outer_rect, 0, math.pi, 2)
+        pygame.draw.arc(screen, self.COLOR_ARC, self.arc_inner_rect, 0, math.pi, 2)
+        
+        # 繪製區域分隔線（使用預計算的端點）
+        for start, end in self.zone_lines:
+            pygame.draw.line(screen, self.COLOR_ARC, start, end, 2)
     
     def _draw_notes(self, screen, notes_data):
         """繪製音符"""

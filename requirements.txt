@@ -1,3 +1,8 @@
+# 核心依賴
 opencv-python
 mediapipe
 pygame
+numpy
+
+# 開發工具（用於生成 beatmap）
+librosa
