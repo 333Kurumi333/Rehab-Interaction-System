@@ -27,7 +27,10 @@ class GameUI:
     def _init_mask(self, width, height):
         self.mask = np.zeros((height, width), dtype=np.uint8)
         center = (width // 2, height)
-        radius = int(width * 0.45) 
+        # 遮罩半徑 = arc_radius + hitbox 容差，確保背景影片剛好在 hitbox 外圈開始
+        arc_radius = int(width * 0.4)
+        hit_tolerance = 80
+        radius = arc_radius + hit_tolerance
         cv2.circle(self.mask, center, radius, 255, -1)
         self.mask_inv = cv2.bitwise_not(self.mask)
         self.mask = cv2.cvtColor(self.mask, cv2.COLOR_GRAY2BGR)

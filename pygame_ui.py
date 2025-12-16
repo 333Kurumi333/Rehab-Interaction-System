@@ -46,13 +46,22 @@ class PygameUI:
         # 繪製 FPS
         self._draw_fps(screen, fps)
     
+    def _draw_text_with_outline(self, screen, font, text, pos, color, outline_color=(0, 0, 0)):
+        """繪製帶描邊的文字"""
+        x, y = pos
+        # 繪製描邊（黑色偏移）
+        outline_offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]
+        for ox, oy in outline_offsets:
+            outline_text = font.render(text, True, outline_color)
+            screen.blit(outline_text, (x + ox, y + oy))
+        # 繪製主文字
+        main_text = font.render(text, True, color)
+        screen.blit(main_text, (x, y))
+        return main_text.get_width()
+    
     def _draw_dashboard(self, screen, score, accuracy, song_name, time_progress):
-        """繪製頂部儀表板"""
+        """繪製頂部儀表板（無背景版，文字有描邊）"""
         w, h = self.width, 100
-        
-        # 背景面板
-        panel_rect = pygame.Rect(0, 0, w, h)
-        pygame.draw.rect(screen, (20, 20, 20), panel_rect)
         
         # 時間進度條
         bar_bg = pygame.Rect(20, h - 10, w - 40, 10)
@@ -63,47 +72,50 @@ class PygameUI:
             bar_fg = pygame.Rect(20, h - 10, bar_width, 10)
             pygame.draw.rect(screen, self.COLOR_ORANGE, bar_fg)
         
-        # Score
-        score_text = self.font_large.render(f"SCORE: {score}", True, self.COLOR_WHITE)
-        screen.blit(score_text, (20, 20))
+        # Score（帶描邊）
+        self._draw_text_with_outline(screen, self.font_large, f"SCORE: {score}", (20, 20), self.COLOR_WHITE)
         
-        # 歌名
+        # 歌名（帶描邊）
         if song_name:
             song_text = self.font_medium.render(song_name, True, self.COLOR_WHITE)
             song_x = (w - song_text.get_width()) // 2
-            screen.blit(song_text, (song_x, 25))
+            self._draw_text_with_outline(screen, self.font_medium, song_name, (song_x, 25), self.COLOR_WHITE)
         
-        # 命中率
+        # 命中率（帶描邊）
         if accuracy is not None:
             acc_color = self.COLOR_GREEN if accuracy > 80 else self.COLOR_RED
             acc_text = self.font_medium.render(f"{accuracy:.1f}%", True, acc_color)
-            screen.blit(acc_text, (w - acc_text.get_width() - 30, 25))
+            self._draw_text_with_outline(screen, self.font_medium, f"{accuracy:.1f}%", 
+                                         (w - acc_text.get_width() - 30, 25), acc_color)
     
     def _draw_arc(self, screen, arc_info):
-        """繪製遊戲弧線"""
+        """繪製判定區弧線（簡潔版）"""
         center = arc_info['center']
         radius = arc_info['radius']
         zone_count = arc_info['zone_count']
         zone_angle_width = arc_info['zone_angle_width']
         
-        # 繪製主弧線
-        rect = pygame.Rect(
-            center[0] - radius, 
-            center[1] - radius, 
-            radius * 2, 
-            radius * 2
-        )
-        pygame.draw.arc(screen, self.COLOR_WHITE, rect, 0, math.pi, 2)
+        hit_tolerance = 80
+        outer_radius = radius + hit_tolerance
+        inner_radius = radius - hit_tolerance
+        
+        # 邊框線
+        outer_rect = pygame.Rect(center[0] - outer_radius, center[1] - outer_radius, 
+                                 outer_radius * 2, outer_radius * 2)
+        inner_rect = pygame.Rect(center[0] - inner_radius, center[1] - inner_radius, 
+                                 inner_radius * 2, inner_radius * 2)
+        
+        pygame.draw.arc(screen, (0, 200, 255), outer_rect, 0, math.pi, 2)
+        pygame.draw.arc(screen, (0, 200, 255), inner_rect, 0, math.pi, 2)
         
         # 繪製區域分隔線
         for i in range(1, zone_count):
             angle = math.radians(180 - (i * zone_angle_width))
-            inner_r, outer_r = radius - 100, radius + 100
-            start = (int(center[0] + inner_r * math.cos(angle)), 
-                     int(center[1] - inner_r * math.sin(angle)))
-            end = (int(center[0] + outer_r * math.cos(angle)), 
-                   int(center[1] - outer_r * math.sin(angle)))
-            pygame.draw.line(screen, (100, 100, 100), start, end, 2)
+            start = (int(center[0] + inner_radius * math.cos(angle)), 
+                     int(center[1] - inner_radius * math.sin(angle)))
+            end = (int(center[0] + outer_radius * math.cos(angle)), 
+                   int(center[1] - outer_radius * math.sin(angle)))
+            pygame.draw.line(screen, (0, 200, 255), start, end, 2)
     
     def _draw_notes(self, screen, notes_data):
         """繪製音符"""
