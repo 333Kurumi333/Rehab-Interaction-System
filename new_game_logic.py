@@ -4,7 +4,7 @@ import os
 import ast
 
 class GameEngine:
-    def __init__(self, width, height, arc_radius=350, zone_count=4, note_speed=3, hit_threshold=50, level=1, notes_per_beat=1, beatmap_file=None):
+    def __init__(self, width, height, arc_radius=350, zone_count=4, note_speed=3, level=1, notes_per_beat=1, beatmap_file=None):
         self.width = width
         self.height = height
         self.score = 0
@@ -15,7 +15,6 @@ class GameEngine:
         self.level = level          
         self.notes_per_beat = notes_per_beat  
 
-        self.beat_counter = 0
         self.last_spawned_beat = -1
 
         # === 譜面讀取 ===
@@ -75,15 +74,10 @@ class GameEngine:
 
     def _get_available_zones(self, count):
         all_zones = list(range(self.ZONE_COUNT))
-        available_zones = []
-        for zone in all_zones:
-            is_available = True
-            for used_zone in self.last_spawn_zones:
-                if abs(zone - used_zone) < 2:
-                    is_available = False
-                    break
-            if is_available:
-                available_zones.append(zone)
+        available_zones = [
+            z for z in all_zones 
+            if all(abs(z - used) >= 2 for used in self.last_spawn_zones)
+        ]
         if len(available_zones) < count:
             self.last_spawn_zones = []
             available_zones = all_zones

@@ -20,7 +20,6 @@ class GameUI:
         self.COLOR_MENU_TEXT = (50, 50, 50)         
         
         self.start_time = time.time()
-        self.background_video = None
         self.mask = None
         self.mask_inv = None
         self._init_mask(width, height)
@@ -33,37 +32,6 @@ class GameUI:
         self.mask_inv = cv2.bitwise_not(self.mask)
         self.mask = cv2.cvtColor(self.mask, cv2.COLOR_GRAY2BGR)
         self.mask_inv = cv2.cvtColor(self.mask_inv, cv2.COLOR_GRAY2BGR)
-
-    def load_background_video(self, video_path):
-        if self.background_video is not None:
-            self.background_video.release()
-        self.background_video = cv2.VideoCapture(video_path)
-        if not self.background_video.isOpened():
-            print(f"⚠️ 無法載入影片: {video_path}")
-            self.background_video = None
-        else:
-            print(f"✅ 背景影片載入成功: {video_path}")
-
-    def get_combined_frame(self, camera_frame):
-        if self.background_video is None:
-            return camera_frame
-
-        ret, bg_frame = self.background_video.read()
-        if not ret:
-            self.background_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ret, bg_frame = self.background_video.read()
-
-        if bg_frame is None: return camera_frame
-
-        h, w = camera_frame.shape[:2]
-        if bg_frame.shape[:2] != (h, w):
-            bg_frame = cv2.resize(bg_frame, (w, h))
-
-        fg = cv2.bitwise_and(camera_frame, self.mask)
-        bg = cv2.bitwise_and(bg_frame, self.mask_inv)
-        final_image = cv2.add(fg, bg)
-        
-        return final_image
 
     # === [新增] FPS 繪製 ===
     def draw_fps(self, image, fps):

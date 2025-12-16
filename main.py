@@ -1,93 +1,22 @@
 import cv2
-import random
 import time
 import os
-import threading
-from camera_sensor import PoseDetector
+from camera_sensor import PoseDetectorThread
 from new_game_logic import GameEngine
 from ui_renderer import GameUI
 from music_controller import MusicController
+from webcam_stream import WebcamStream
+from video_player import VideoPlayerThread
+from utils import FPSCounter, check_window_close, is_hand_in_box, StepProfiler
 
-# === 1. Webcam 多執行緒 ===
-class WebcamStream:
-    def __init__(self, src=0, width=1920, height=1080):
-        self.stream = cv2.VideoCapture(src, cv2.CAP_DSHOW)
-        self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-        self.stream.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.stream.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.stream.set(cv2.CAP_PROP_FPS, 30)
-        (self.grabbed, self.frame) = self.stream.read()
-        self.stopped = False
-
-    def start(self):
-        threading.Thread(target=self.update, args=(), daemon=True).start()
-        return self
-
-    def update(self):
-        while True:
-            if self.stopped: return
-            (self.grabbed, self.frame) = self.stream.read()
-
-    def read(self):
-        return self.grabbed, self.frame
-
-    def stop(self):
-        self.stopped = True
-        self.stream.release()
-
-# === 2. 背景影片多執行緒 ===
-class VideoPlayerThread:
-    def __init__(self, video_path):
-        self.cap = cv2.VideoCapture(video_path)
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        if self.fps <= 0 or self.fps > 120: self.fps = 30
-        self.frame_duration = 1.0 / self.fps
-        
-        self.grabbed, self.frame = self.cap.read()
-        self.stopped = False
-        self.frame_available = True
-        if not self.grabbed:
-            print(f"無法讀取背景影片: {video_path}")
-            self.frame_available = False
-
-    def start(self):
-        if self.frame_available:
-            threading.Thread(target=self.update, args=(), daemon=True).start()
-        return self
-
-    def update(self):
-        while not self.stopped:
-            start_time = time.time()
-            grabbed, frame = self.cap.read()
-            if not grabbed:
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
-            self.grabbed, self.frame = grabbed, frame
-            elapsed = time.time() - start_time
-            wait_time = self.frame_duration - elapsed
-            if wait_time > 0:
-                time.sleep(wait_time)
-
-    def read(self):
-        return self.frame
-
-    def stop(self):
-        self.stopped = True
-        self.cap.release()
-
-def is_hand_in_box(hand_pos, box_rect):
-    if hand_pos is None: return False
-    x, y = hand_pos
-    x1, y1, x2, y2 = box_rect
-    return x1 <= x <= x2 and y1 <= y <= y2
 
 def main():
     SONG_LIST = [
-        { "name": "Haruhikage", "filename": "Haruhikage_CRYCHIC.wav", "bpm": 97, "note_speed": 7, "folder": "music" },
+        { "name": "Haruhikage", "filename": "Haruhikage.wav", "bpm": 97, "note_speed": 7, "folder": "music" },
         { "name": "Zankoku na Tenshi no Te-ze", "filename": "Zankoku na Tenshi no Te-ze.wav", "bpm": 128, "note_speed": 7, "folder": "music" }
     ]
 
-    sensor = PoseDetector()
+    sensor = PoseDetectorThread().start()
     FULL_WIDTH, FULL_HEIGHT = 1920, 1080
     ui = GameUI(width=FULL_WIDTH, height=FULL_HEIGHT)
     
@@ -99,10 +28,7 @@ def main():
     
     is_running = True
     bg_video_thread = None
-    
-    # [新增] 初始化變數
-    fps = 0
-    prev_time = time.time()
+    fps_counter = FPSCounter()
 
     while is_running:
         # ==========================================
@@ -110,8 +36,7 @@ def main():
         # ==========================================
         if bg_video_thread:
             bg_video_thread.stop()
-            bg_video_thread = None
-            ui.background_video = None 
+            bg_video_thread = None 
 
         selected_song = None
         hover_index = -1
@@ -125,7 +50,12 @@ def main():
                 time.sleep(0.01)
                 continue
 
-            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            sensor.submit_frame(frame)
+            processed_image, left_hand_pos, right_hand_pos = sensor.get_result()
+            
+            # 首次啟動時可能還沒有結果
+            if processed_image is None:
+                continue
             
             progress = 0.0
             if hover_index != -1:
@@ -135,15 +65,7 @@ def main():
                     selected_song = SONG_LIST[hover_index]
                     menu_done = True 
             
-            # [新增] 計算 FPS
-            curr_time = time.time()
-            if curr_time - prev_time > 0:
-                fps = 1 / (curr_time - prev_time)
-            else:
-                fps = 0
-            prev_time = curr_time
-
-            # [修改] 傳入 fps
+            fps = fps_counter.update()
             box_regions = ui.draw_menu(processed_image, SONG_LIST, hover_index, progress, fps)
             
             current_hover = -1
@@ -160,9 +82,7 @@ def main():
                 hover_start_time = 0
             
             cv2.imshow(window_name, processed_image)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
-            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+            if check_window_close(window_name): is_running = False
         
         if not is_running: break
 
@@ -202,16 +122,26 @@ def main():
         music.start()
         game_done = False
         game_start_time = time.time()
-        prev_time = time.time()
+        profiler = StepProfiler(enabled=True, print_interval=60)  # 每 60 幀輸出一次
         
         while not game_done and is_running:
+            profiler.start("攝影機讀取")
             ret, frame = cap.read()
+            profiler.end()
+            
             if not ret or frame is None: 
                 time.sleep(0.001)
                 continue
             
-            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            profiler.start("姿態偵測")
+            sensor.submit_frame(frame)
+            processed_image, left_hand_pos, right_hand_pos = sensor.get_result()
+            profiler.end()
             
+            if processed_image is None:
+                continue
+            
+            profiler.start("影片合成")
             if bg_video_thread:
                 bg_frame = bg_video_thread.read()
                 if bg_frame is not None:
@@ -221,9 +151,12 @@ def main():
                     fg = cv2.bitwise_and(processed_image, ui.mask)
                     bg = cv2.bitwise_and(bg_frame, ui.mask_inv)
                     processed_image = cv2.add(fg, bg)
+            profiler.end()
 
+            profiler.start("遊戲邏輯")
             logic.update_game_state(left_hand_pos, music_controller=music)
             logic.update_game_state(right_hand_pos, music_controller=music)
+            profiler.end()
             
             if (time.time() - game_start_time > 2.0) and (not music.is_music_playing()):
                 game_done = True
@@ -234,29 +167,20 @@ def main():
             accuracy = logic.get_accuracy()
             combo = logic.get_combo() 
             
-            # [新增] 計算 FPS
-            curr_time = time.time()
-            if curr_time - prev_time > 0:
-                fps = 1 / (curr_time - prev_time)
-            else:
-                fps = 0
-            prev_time = curr_time
-            
+            profiler.start("UI渲染")
+            fps = fps_counter.update()
             ui.draw_game_elements(
-                processed_image,
-                arc_info,
-                notes_data,
-                score,
-                accuracy,
-                combo=combo,
-                song_name=selected_song['name'], # 傳入歌名
-                fps=fps # 傳入 FPS
+                processed_image, arc_info, notes_data, score, accuracy,
+                combo=combo, song_name=selected_song['name'], fps=fps
             )
+            profiler.end()
             
+            profiler.start("畫面顯示")
             cv2.imshow(window_name, processed_image)
+            if check_window_close(window_name): is_running = False
+            profiler.end()
             
-            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
-            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+            profiler.frame_done()
             
         music.stop()
         if bg_video_thread:
@@ -278,7 +202,11 @@ def main():
                 time.sleep(0.01)
                 continue
             
-            processed_image, left_hand_pos, right_hand_pos = sensor.process_frame(frame)
+            sensor.submit_frame(frame)
+            processed_image, left_hand_pos, right_hand_pos = sensor.get_result()
+            
+            if processed_image is None:
+                continue
             
             progress = 0.0
             if is_hovering_btn:
@@ -286,15 +214,7 @@ def main():
                 progress = min(elapsed / SELECTION_TIME, 1.0)
                 if progress >= 1.0: result_done = True 
             
-            # [新增] 計算 FPS
-            curr_time = time.time()
-            if curr_time - prev_time > 0:
-                fps = 1 / (curr_time - prev_time)
-            else:
-                fps = 0
-            prev_time = curr_time
-
-            # [修改] 傳入 fps
+            fps = fps_counter.update()
             btn_rect = ui.draw_result_panel(processed_image, final_stats, progress, fps)
             
             if is_hand_in_box(left_hand_pos, btn_rect) or is_hand_in_box(right_hand_pos, btn_rect):
@@ -303,10 +223,9 @@ def main():
                 is_hovering_btn = False; hover_start_time = 0
             
             cv2.imshow(window_name, processed_image)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'): is_running = False
-            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1: is_running = False
+            if check_window_close(window_name): is_running = False
                 
+    sensor.stop()
     cap.stop()
     if bg_video_thread: bg_video_thread.stop()
     cv2.destroyAllWindows()

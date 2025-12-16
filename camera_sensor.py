@@ -25,6 +25,22 @@ class PoseDetector:
         new_y = int(prev_pos[1] * (1 - self.smooth_factor) + curr_pos[1] * self.smooth_factor)
         return (new_x, new_y)
 
+    def _process_hand(self, results, w, h, pinky_landmark, index_landmark, prev_pos):
+        """處理單隻手的偵測與平滑化"""
+        pinky = results.pose_landmarks.landmark[pinky_landmark]
+        index = results.pose_landmarks.landmark[index_landmark]
+        palm_x = (pinky.x + index.x) / 2
+        palm_y = (pinky.y + index.y) / 2
+        current = (int(palm_x * w), int(palm_y * h))
+        return self._smooth_coordinate(prev_pos, current)
+
+    def _draw_hand_circle(self, image, pos, color):
+        """繪製手部觸擊範圍"""
+        overlay = image.copy()
+        cv2.circle(overlay, pos, 65, color, -1)
+        cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)
+        cv2.circle(image, pos, 15, color, -1)
+
     def process_frame(self, frame):
         """
         輸入原始影像，回傳：
@@ -32,81 +48,93 @@ class PoseDetector:
         2. 左手手掌的座標 (x, y) 或 None (如果沒偵測到)
         3. 右手手掌的座標 (x, y) 或 None (如果沒偵測到)
         """
-        # 翻轉影像與色彩轉換
-        frame = cv2.flip(frame, 1) # 翻轉： 讓畫面像照鏡子，方便玩遊戲。
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) # 變色： 把顏色調成 AI 看得懂的 RGB 格式。
-        image.flags.writeable = False # 鎖定： 告訴 AI 這張圖是唯讀的，加快處理速度。
+        frame = cv2.flip(frame, 1)
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image.flags.writeable = False
+        results = self.pose.process(image)
+        image.flags.writeable = True
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-        # 進行偵測
-        results = self.pose.process(image) #AI 分析 (process) 拿到數據報告。
+        left_hand_pos = None
+        right_hand_pos = None
 
-        # 轉回 BGR 供 OpenCV 顯示
-        image.flags.writeable = True #解鎖圖片 (writeable=True) 準備讓畫筆畫圖。
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) #轉回原色 (cvtColor) 讓畫面顯示正常顏色。
+        if results.pose_landmarks:
+            h, w, c = image.shape
 
-        left_hand_pos = None  # 左手手掌座標
-        right_hand_pos = None # 右手手掌座標
+            # 左手處理
+            left_hand_pos = self._process_hand(
+                results, w, h,
+                self.mp_pose.PoseLandmark.LEFT_PINKY,
+                self.mp_pose.PoseLandmark.LEFT_INDEX,
+                self.prev_left
+            )
+            self.prev_left = left_hand_pos
+            self._draw_hand_circle(image, left_hand_pos, (0, 255, 255))
 
-        if results.pose_landmarks: # 如果畫面上有人
-            # 隱藏骨架線，不繪製
-            # self.mp_drawing.draw_landmarks(
-            #     image, #畫布=image
-            #     results.pose_landmarks, #畫關節點
-            #     self.mp_pose.POSE_CONNECTIONS #畫關節點間的連線
-            # )
-
-            # 取得畫面尺寸
-            h, w, c = image.shape # 取得畫面尺寸 Height Width Channel(通常是 3，代表 R、G、B)
-
-            # === 提取左手座標 ===
-            left_pinky = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_PINKY]
-            left_index = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_INDEX]
-
-            # 計算左手中心
-            left_palm_x = (left_pinky.x + left_index.x) / 2
-            left_palm_y = (left_pinky.y + left_index.y) / 2
-
-            current_left = (int(left_palm_x * w), int(left_palm_y * h))
-
-            # 左手平滑處理
-            left_hand_pos = self._smooth_coordinate(self.prev_left, current_left)
-            self.prev_left = left_hand_pos # 更新記憶
-
-            # 畫出左手觸擊範圍
-            # 1. 外圈半透明區域 (觸擊有效範圍)
-            overlay = image.copy()
-            cv2.circle(overlay, left_hand_pos, 65, (0, 255, 255), -1)  # 黃色半透明外圈
-            cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
-
-            # 2. 中心點 (黃色實心)
-            cv2.circle(image, left_hand_pos, 15, (0, 255, 255), -1)
-
-            # === 提取右手座標 ===
-            right_pinky = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_PINKY]
-            right_index = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_INDEX]
-
-            # 計算右手中心
-            right_palm_x = (right_pinky.x + right_index.x) / 2
-            right_palm_y = (right_pinky.y + right_index.y) / 2
-
-            current_right = (int(right_palm_x * w), int(right_palm_y * h))
-
-            # 右手平滑處理
-            right_hand_pos = self._smooth_coordinate(self.prev_right, current_right)
-            self.prev_right = right_hand_pos # 更新記憶
-
-            # 畫出右手觸擊範圍
-            # 1. 外圈半透明區域 (觸擊有效範圍)
-            overlay = image.copy()
-            cv2.circle(overlay, right_hand_pos, 65, (255, 255, 0), -1)  # 青色半透明外圈
-            cv2.addWeighted(overlay, 0.2, image, 0.8, 0, image)  # 20% 透明度
-
-            # 2. 中心點 (青色實心)
-            cv2.circle(image, right_hand_pos, 15, (255, 255, 0), -1)
-    
+            # 右手處理
+            right_hand_pos = self._process_hand(
+                results, w, h,
+                self.mp_pose.PoseLandmark.RIGHT_PINKY,
+                self.mp_pose.PoseLandmark.RIGHT_INDEX,
+                self.prev_right
+            )
+            self.prev_right = right_hand_pos
+            self._draw_hand_circle(image, right_hand_pos, (255, 255, 0))
         else:
-            # 重新下次人出現時，不會從舊位置飛過來，而是直接出現在新位置
             self.prev_left = None
             self.prev_right = None
 
-        return image, left_hand_pos, right_hand_pos #回傳圖片和雙手座標
+        return image, left_hand_pos, right_hand_pos
+
+
+class PoseDetectorThread:
+    """姿態偵測執行緒包裝器 - 在背景執行姿態偵測以提升 FPS"""
+    
+    def __init__(self):
+        import threading
+        self.detector = PoseDetector()
+        self.frame = None
+        self.processed_image = None
+        self.left_hand_pos = None
+        self.right_hand_pos = None
+        self.stopped = False
+        self.lock = threading.Lock()
+        self.new_frame_event = threading.Event()
+    
+    def start(self):
+        import threading
+        threading.Thread(target=self._update, args=(), daemon=True).start()
+        return self
+    
+    def _update(self):
+        """背景執行緒：持續處理最新的畫面"""
+        while not self.stopped:
+            # 等待新畫面
+            self.new_frame_event.wait(timeout=0.1)
+            self.new_frame_event.clear()
+            
+            with self.lock:
+                frame = self.frame
+            
+            if frame is not None:
+                # 執行姿態偵測 (耗時操作)
+                processed, left, right = self.detector.process_frame(frame)
+                
+                with self.lock:
+                    self.processed_image = processed
+                    self.left_hand_pos = left
+                    self.right_hand_pos = right
+    
+    def submit_frame(self, frame):
+        """主執行緒：提交新畫面給背景處理"""
+        with self.lock:
+            self.frame = frame
+        self.new_frame_event.set()
+    
+    def get_result(self):
+        """主執行緒：取得最新處理結果 (不阻塞)"""
+        with self.lock:
+            return self.processed_image, self.left_hand_pos, self.right_hand_pos
+    
+    def stop(self):
+        self.stopped = True
