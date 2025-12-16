@@ -170,7 +170,11 @@ def main():
                     if bg_frame.shape[:2] != (FULL_HEIGHT, FULL_WIDTH):
                         bg_frame = cv2.resize(bg_frame, (FULL_WIDTH, FULL_HEIGHT))
                     
-                    fg = cv2.bitwise_and(processed_image, ui.mask)
+                    # 方案 3：圓圈內也加入半透明影片
+                    alpha = 0.3  # 30% 影片, 70% 攝影機
+                    blended_inside = cv2.addWeighted(processed_image, 1.0 - alpha, bg_frame, alpha, 0)
+                    
+                    fg = cv2.bitwise_and(blended_inside, ui.mask)
                     bg = cv2.bitwise_and(bg_frame, ui.mask_inv)
                     processed_image = cv2.add(fg, bg)
             profiler.end()
