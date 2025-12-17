@@ -1,25 +1,14 @@
 import cv2
-import math
 import numpy as np
-import time
 
 class GameUI:
     def __init__(self, width=640, height=480):
         self.width = width
         self.height = height
         # === 色彩設定 ===
-        self.COLOR_BG_PANEL = (50, 50, 50)     
-        self.COLOR_ZONE_LINE = (200, 200, 200) 
-        self.COLOR_JUDGE_ZONE = (0, 255, 255)  
-        self.COLOR_NOTE_NORMAL = (0, 0, 255)   
-        self.COLOR_NOTE_BONUS = (0, 215, 255)  
-        self.COLOR_NOTE_HIT = (0, 255, 0)      
-        self.COLOR_NOTE_MISS = (100, 100, 100) 
         self.COLOR_MENU_BOX = (255, 200, 100)       
         self.COLOR_MENU_BOX_HOVER = (0, 165, 255)   
-        self.COLOR_MENU_TEXT = (50, 50, 50)         
-        
-        self.start_time = time.time()
+        self.COLOR_MENU_TEXT = (50, 50, 50)
         self.mask = None
         self.mask_inv = None
         self._init_mask(width, height)

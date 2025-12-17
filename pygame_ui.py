@@ -53,8 +53,8 @@ class PygameUI:
     def _draw_text_with_outline(self, screen, font, text, pos, color, outline_color=(0, 0, 0)):
         """繪製帶描邊的文字"""
         x, y = pos
-        # 繪製描邊（黑色偏移）
-        outline_offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]
+        # 繪製描邊（黑色偏移，只用 4 個對角方向）
+        outline_offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2)]
         for ox, oy in outline_offsets:
             outline_text = font.render(text, True, outline_color)
             screen.blit(outline_text, (x + ox, y + oy))
@@ -81,16 +81,17 @@ class PygameUI:
         
         # 歌名（帶描邊）
         if song_name:
-            song_text = self.font_medium.render(song_name, True, self.COLOR_WHITE)
-            song_x = (w - song_text.get_width()) // 2
+            text_width, _ = self.font_medium.size(song_name)
+            song_x = (w - text_width) // 2
             self._draw_text_with_outline(screen, self.font_medium, song_name, (song_x, 25), self.COLOR_WHITE)
         
         # 命中率（帶描邊）
         if accuracy is not None:
             acc_color = self.COLOR_GREEN if accuracy > 80 else self.COLOR_RED
-            acc_text = self.font_medium.render(f"{accuracy:.1f}%", True, acc_color)
-            self._draw_text_with_outline(screen, self.font_medium, f"{accuracy:.1f}%", 
-                                         (w - acc_text.get_width() - 30, 25), acc_color)
+            acc_str = f"{accuracy:.1f}%"
+            text_width, _ = self.font_medium.size(acc_str)
+            self._draw_text_with_outline(screen, self.font_medium, acc_str, 
+                                         (w - text_width - 30, 25), acc_color)
     
     def _init_arc_geometry(self, width, height, zone_count):
         """預計算弧線幾何參數（只在初始化時執行一次）"""
